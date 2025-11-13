@@ -15,25 +15,6 @@
 #include <assert.h>
 
 //
-// MISC
-//
-
-#define HH_MAX(x, y) (((x) > (y)) ? (x) : (y))
-#define HH_MIN(x, y) (((x) < (y)) ? (x) : (y))
-
-#if defined(__GNUC__) || defined(__clang__)
-#define HH_UNUSED __attribute__((unused))
-#else
-#define HH_UNUSED
-#endif
-
-#if defined(__GNUC__) || defined(__clang__)
-#define HH_FALLTHROUGH __attribute__((fallthrough))
-#else
-#define HH_FALLTHROUGH
-#endif
-
-//
 // LOGGING
 //
 
@@ -79,10 +60,15 @@ enum {
 // MISC
 //
 
+#define HH_STRINGIFY_HELPER(x) #x
+#define HH_STRINGIFY(x) HH_STRINGIFY_HELPER(x)
+#undef HH_STRINGIFY_HELPER
+
 #define HH_ASSERT_BEFORE(cond) for(; !(cond); assert(cond))
-#define HH_ASSERT(cond, ...) do { for(; !(cond); assert(cond)) HH_ERR(__VA_ARGS__); } while(0)
+#define HH_ASSERT(cond, ...) do { if(cond) break; HH_ERR(__VA_ARGS__); assert(cond); } while(0)
 #define HH_ASSERT_UNREACHABLE(cond) HH_ASSERT(cond, "Unreachable!")
 
+// TODO: Consider removing, use case is too specific
 #define HH_CHECK_STREAM(stream, cond, ...) if(!(cond)) { \
 		fclose((stream)); \
 		HH_ERR(__VA_ARGS__); \
@@ -101,9 +87,29 @@ enum {
 		HH_ASSERT(var != NULL, "Failed to allocate [%s].", #var); \
 	} while(0);
 
+#define HH_MAX(x, y) (((x) > (y)) ? (x) : (y))
+#define HH_MIN(x, y) (((x) < (y)) ? (x) : (y))
+
+#if defined(__GNUC__) || defined(__clang__)
+#define HH_UNUSED __attribute__((unused))
+#else
+#define HH_UNUSED
+#endif
+
+#if defined(__GNUC__) || defined(__clang__)
+#define HH_FALLTHROUGH __attribute__((fallthrough))
+#else
+#define HH_FALLTHROUGH
+#endif
+
 //
 // CLI ARG PARSING
 //
+
+// TODO: This needs a major rework with...
+// - help message print outs
+// - ability to leave flag_/flag_long_ NULL
+// - etc
 
 #ifdef HH_ARGS
 
@@ -151,37 +157,33 @@ hh_args_clean(void);
 #endif // not HH_ARR_CAP_DEFAULT
 
 // internal array components
-typedef struct { size_t len, cap, elem_size; } hh_arrheader_t;
+typedef struct { 
+	size_t len, cap, elem_size; 
+} hh_arrheader_t;
 // helper functions
 void*
-hh_arrnew_impl(size_t cap, size_t elem_size);
-size_t
-hh_arradd_impl(void** arrp, size_t n, size_t elem_size);
+hh_impl_arrnew(size_t cap, size_t elem_size);
 void 
-hh_arrgrow_impl(void** arrp, size_t n, size_t elem_size);
+hh_impl_arrgrow(void** arrp, size_t n, size_t elem_size);
+size_t
+hh_impl_arradd(void** arrp, size_t n, size_t elem_size);
 
-#define hh_arrheader(arr)       (((hh_arrheader_t*) arr) - 1)
-#define hh_arrnew(arr)          ((arr) = hh_arrnew_impl(HH_ARR_CAP_DEFAULT, sizeof(*arr)))
-#define hh_arrgrow(arr, n)      (hh_arrgrow_impl((void**) &(arr), (n), sizeof(*(arr))), (arr))
+#define hh_arrheader(arr)   (((hh_arrheader_t*) arr) - 1)
+#define hh_arrnew(arr)      ((arr) = hh_impl_arrnew(HH_ARR_CAP_DEFAULT, sizeof(*arr)))
+#define hh_arrgrow(arr, n)  (hh_impl_arrgrow((void**) &(arr), (n), sizeof(*(arr))), (arr))
 // PUBLIC API
-#define hh_arrclear(arr)        ((arr == NULL) ? 0 : (hh_arrheader(arr)->len = 0))
-#define hh_arrfree(arr)         ((void) ((arr) ? free(hh_arrheader(arr)) : (void) 0), (arr) = NULL)
-#define hh_arrlast(arr)         ((arr)[hh_arrheader(arr)->len - 1])
-#define hh_arrput(arr, val)     ((void) hh_arrgrow(arr, 1), (arr)[(hh_arrheader(arr)->len)++] = (val))
-#define hh_arrpop(arr)          ((arr)[--(hh_arrheader(arr)->len)])
-#define hh_arradd(arr, n)       (hh_arradd_impl((void**)&(arr), (n), sizeof *(arr)))
-#define hh_arrlen(arr)          ((arr == NULL) ? 0 : hh_arrheader(arr)->len)
-#define hh_arrcap(arr)          ((arr == NULL) ? 0 : hh_arrheader(arr)->cap)
+#define hh_arrclear(arr)    ((arr == NULL) ? 0 : (hh_arrheader(arr)->len = 0))
+#define hh_arrfree(arr)     ((void) ((arr) ? free(hh_arrheader(arr)) : (void) 0), (arr) = NULL)
+#define hh_arrlast(arr)     ((arr)[hh_arrheader(arr)->len - 1])
+#define hh_arrput(arr, val) ((void) hh_arrgrow(arr, 1), (arr)[(hh_arrheader(arr)->len)++] = (val))
+#define hh_arrpop(arr)      ((arr)[--(hh_arrheader(arr)->len)])
+#define hh_arradd(arr, n)   (hh_impl_arradd((void**)&(arr), (n), sizeof *(arr)))
+#define hh_arrlen(arr)      ((arr == NULL) ? 0 : hh_arrheader(arr)->len)
+#define hh_arrcap(arr)      ((arr == NULL) ? 0 : hh_arrheader(arr)->cap)
+// TODO: There should be an hh_arrdelswap(arr, idx),
+// which replaces the value at idx with the final element and decrements length
 
-//
-// STRINGS
-//
-
-#define HH_STRINGIFY_HELPER(x) #x
-#define HH_STRINGIFY(x) HH_STRINGIFY_HELPER(x)
-#undef HH_STRINGIFY_HELPER
-
-#define hh_strput(arr, str) do { \
+#define hh_arrputstr(arr, str) do { \
 		if(hh_arrlen(arr) == 0 || (hh_arrlen(arr) != 0 && hh_arrlast(arr) != '\0')) hh_arrput(arr, '\0'); \
 		assert(hh_arrlast(arr) == '\0'); \
 		size_t _tmp = hh_arradd(arr, strlen(str)) - 1; \
@@ -198,14 +200,18 @@ bool
 hh_path_exists(const char* path);
 bool
 hh_path_is_file(const char* path);
+bool 
+hh_path_is_root(const char* path);
 char*
-hh_path_join(char** path, const char* sub); // extends the given path
+hh_path_join(char* path, const char* sub); // extends the given path
 const char*
 hh_path_name(const char* path); // returns the pointer to the filename part of the path
 char*
 hh_path_parent(char* path); // returns truthy if path has a parent
 char*
 hh_path_parent_alloc(const char* path); // returns a new allocated path
+// paths are just hh_arr, so we free with hh_arrfree
+#define hh_path_free hh_arrfree
 
 //
 // EDITION
@@ -260,7 +266,6 @@ hh_path_parent_alloc(const char* path); // returns a new allocated path
 #endif // __STD__
 
 #define HH_EDITION_SUPPORTED(x) (HH_EDITION >= (x))
-#undef HH_EDITION
 
 //
 // PARSING
@@ -271,9 +276,9 @@ hh_read_entire_file(const char* path);
 const char*
 hh_skip_whitespace(const char* ptr);
 bool
-hh_starts_with(const char* str, const char* prefix);
+hh_has_prefix(const char* str, const char* prefix);
 bool
-hh_ends_with(const char* str, const char* suffix);
+hh_has_suffix(const char* str, const char* suffix);
 
 typedef struct {
 	const char* ptr;
@@ -295,13 +300,12 @@ hh_span_equals(const hh_span_t span, const char* other);
 // NetBSD: getline.c,v 1.2 2014/09/16 17:23:50 christos Exp
 //
 
-ptrdiff_t
+ptrdiff_t // NO PREFIX STRIPPING
 hh_getdelim(char** buf, size_t* bufsiz, int delimiter, FILE* fp);
-ptrdiff_t
+ptrdiff_t // NO PREFIX STRIPPING
 hh_getline(char** buf, size_t* bufsiz, FILE* fp);
 
-// Other misc functions
-size_t 
+size_t // NO PREFIX STRIPPING
 hh_strnlen(const char* str, size_t strsz);
 
 #endif // HH_H__
@@ -390,7 +394,7 @@ hh_args_clean(void) {
 #endif // HH_ARGS
 
 void*
-hh_arrnew_impl(size_t cap, size_t elem_size) {
+hh_impl_arrnew(size_t cap, size_t elem_size) {
     void* arr = (((hh_arrheader_t*) calloc(1, sizeof(hh_arrheader_t) + elem_size * cap)) + 1);
     hh_arrheader(arr)->len = 0;
     hh_arrheader(arr)->cap = cap;
@@ -398,19 +402,8 @@ hh_arrnew_impl(size_t cap, size_t elem_size) {
     return arr;
 }
 
-size_t
-hh_arradd_impl(void** arrp, size_t n, size_t elem_size) {
-	hh_arrgrow_impl(arrp, n, elem_size);
-    size_t len = hh_arrlen(*arrp);
-    if(n) {
-        memset((char*) (*arrp) + len * elem_size, 0, elem_size * n);
-        hh_arrheader(*arrp)->len = len + n;
-    }
-    return len;
-}
-
 void 
-hh_arrgrow_impl(void** arrp, size_t n, size_t elem_size) {
+hh_impl_arrgrow(void** arrp, size_t n, size_t elem_size) {
     if(*arrp == NULL) {
         hh_arrheader_t* hdr = calloc(1, sizeof(hh_arrheader_t) + elem_size * HH_MAX(n, HH_ARR_CAP_DEFAULT));
         assert(hdr != NULL);
@@ -429,10 +422,21 @@ hh_arrgrow_impl(void** arrp, size_t n, size_t elem_size) {
 	}
 }
 
+size_t
+hh_impl_arradd(void** arrp, size_t n, size_t elem_size) {
+	hh_impl_arrgrow(arrp, n, elem_size);
+    size_t len = hh_arrlen(*arrp);
+    if(n) {
+        memset((char*) (*arrp) + len * elem_size, 0, elem_size * n);
+        hh_arrheader(*arrp)->len = len + n;
+    }
+    return len;
+}
+
 char*
 hh_path_alloc_impl(const char* raw) {
 	char* path = NULL;
-	hh_strput(path, raw);
+	hh_arrputstr(path, raw);
 	if(path == NULL) return NULL;
 	for(char* curr = path; *curr != '\0'; ++curr) if(*curr == '\\') *curr = '/';
 	return path;
@@ -457,11 +461,11 @@ hh_path_alloc(const char *raw) {
 	if(raw[0] == '.' && (raw[1] == '/' || raw[1] == '\\' || raw[1] == '\0')) {
 		raw_abs = realpath(".", NULL);
 		path = hh_path_alloc_impl(raw_abs);
-		hh_strput(path, raw + 1);
+		hh_arrputstr(path, raw + 1);
 	} else if(raw[0] == '.' && raw[1] == '.' && (raw[2] == '/' || raw[2] == '\\' || raw[2] == '\0')) {
 		raw_abs = realpath("..", NULL);
 		path = hh_path_alloc_impl(raw_abs);
-		hh_strput(path, raw + 2);
+		hh_arrputstr(path, raw + 2);
 	} else path = hh_path_alloc_impl(raw);
 #endif
 	if(raw_abs) free(raw_abs);
@@ -495,20 +499,30 @@ hh_path_is_file(const char* path) {
 #endif
 }
 
+bool 
+hh_path_is_root(const char* path) {
+	if(path == NULL) return false;
+#ifdef _WIN32
+    if(hh_arrlen(path) != 4) return false;
+	if(path[0] < 'A' || path[0] > 'Z') return false;
+	return path[1] == ':' && path[2] == '/';
+#else
+    return hh_arrlen(path) == 2 && path[0] == '/';
+#endif
+}
+
 char*
-hh_path_join(char** path_ptr, const char* sub) {
-	if(path_ptr == NULL) return NULL;
-	char* path = *path_ptr;
+hh_path_join(char* path, const char* sub) {
 	if(path == NULL) return NULL;
-	if(sub == NULL) return path;
+	if(sub == NULL) return NULL;
 	if(sub[0] == '/' || sub[0] == '\\') ++sub;
 	(void) hh_arrpop(path);
-	if(hh_arrlast(path) != '/') hh_strput(path, "/");
-	hh_strput(path, sub);
+	if(hh_arrlast(path) != '/') hh_arrputstr(path, "/");
+	hh_arrputstr(path, sub);
 	(void) hh_arrpop(path);
 	if(hh_arrlen(path) > 2 && hh_arrlast(path) == '/') (void) hh_arrpop(path);
 	hh_arrput(path, '\0');
-	return ((*path_ptr) = path);
+	return path;
 }
 
 const char*
@@ -523,6 +537,7 @@ hh_path_name(const char* path) {
 char*
 hh_path_parent(char* path) {
 	if(path == NULL) return NULL;
+	if(hh_path_is_root(path)) return NULL;
 	while(hh_arrlast(path) != '/') (void) hh_arrpop(path);
 #ifdef _WIN32
 	if(hh_arrlen(path) == 3 && path[0] >= 'A' && path[0] <= 'Z' && path[1] == ':' && path[2] == '/') {
@@ -547,8 +562,9 @@ hh_path_parent(char* path) {
 char*
 hh_path_parent_alloc(const char* path) {
 	if(path == NULL) return NULL;
+	if(hh_path_is_root(path)) return NULL;
 	char* path_parent = NULL;
-	hh_strput(path_parent, path);
+	hh_arrputstr(path_parent, path);
 	while(hh_arrlast(path_parent) != '/') (void) hh_arrpop(path_parent);
 #ifdef _WIN32
 	if(hh_arrlen(path_parent) == 3 && path_parent[0] >= 'A' && path_parent[0] <= 'Z' && path_parent[1] == ':' && path_parent[2] == '/') {
@@ -649,7 +665,7 @@ hh_strnlen(const char* str, size_t strsz) {
 }
 
 bool
-hh_ends_with(const char* str, const char* suffix) {
+hh_has_suffix(const char* str, const char* suffix) {
     size_t len_str = strlen(str);
     size_t len_suffix = strlen(suffix);
     return len_suffix <= len_str && !strcmp(str + len_str - len_suffix, suffix);
@@ -712,7 +728,7 @@ hh_skip_whitespace(const char* ptr) {
 }
 
 bool
-hh_starts_with(const char* str, const char* prefix) {
+hh_has_prefix(const char* str, const char* prefix) {
 	return strncmp(str, prefix, strlen(prefix)) == 0;
 }
 
@@ -756,6 +772,7 @@ hh_read_entire_file(const char* path) {
 #define DBG HH_DBG
 #define MSG HH_MSG
 #define ERR HH_ERR
+#define STRINGIFY HH_STRINGIFY
 #define ASSERT_BEFORE HH_ASSERT_BEFORE
 #define ASSERT HH_ASSERT
 #define ASSERT_UNREACHABLE HH_ASSERT_UNREACHABLE
@@ -775,15 +792,16 @@ hh_read_entire_file(const char* path) {
 #define arradd hh_arradd
 #define arrlen hh_arrlen
 #define arrcap hh_arrcap
-#define STRINGIFY HH_STRINGIFY
-#define strput hh_strput
+#define arrputstr hh_arrputstr
 #define path_alloc hh_path_alloc
 #define path_exists hh_path_exists
 #define path_is_file hh_path_is_file
+#define path_is_root hh_path_is_root
 #define path_join hh_path_join
 #define path_name hh_path_name
 #define path_parent hh_path_parent
 #define path_parent_alloc hh_path_parent_alloc
+#define path_free hh_path_free
 #define EDITION_SUPPORTED HH_EDITION_SUPPORTED
 #define EDITION_89 HH_EDITION_89
 #define EDITION_90 HH_EDITION_90
@@ -799,8 +817,8 @@ hh_read_entire_file(const char* path) {
 #define span_size_t hh_span_size_t
 #define span_equals hh_span_equals
 #define skip_whitespace hh_skip_whitespace
-#define starts_with hh_starts_with
-#define ends_with hh_ends_with
+#define has_prefix hh_has_prefix
+#define has_suffix hh_has_suffix
 #define read_entire_file hh_read_entire_file
 #endif // HH_STRIP_PREFIXES
 #endif // HH_H__STRIP_PREFIXES

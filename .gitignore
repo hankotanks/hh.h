@@ -1,5 +1,5 @@
 .cache/*
-tests/*.o
-test
-test.exe
+tests.c
+tests
+tests.exe
 compile_commands.json
