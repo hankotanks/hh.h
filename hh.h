@@ -15,18 +15,21 @@
 #include <string.h>
 #include <assert.h>
 
-//
-// HH_LOGS
-//
-
+// log only errors
+// #define HH_LOG HH_LOG_ERR
+// log errors and messages
+// #define HH_LOG HH_LOG_MSG
+// log everything
+// #define HH_LOG HH_LOG_DBG
 enum {
     HH_LOG_ERR = 1 << 0,
     HH_LOG_MSG = 1 << 1,
     HH_LOG_DBG = 1 << 2
 };
 
+// all logging functions have the same behavior as printf,
+// HH_ERR logs to stderr instead of stdout
 #ifdef HH_LOG
-
 #define HH_DBG(...) do { \
     if(HH_LOG >= HH_LOG_DBG) { \
         printf("DEBUG [%s:%d]: ", __FILE__, __LINE__); \
@@ -34,7 +37,6 @@ enum {
         printf("\n"); \
     } \
 } while(0)
-
 #define HH_MSG(...) do { \
     if(HH_LOG >= HH_LOG_MSG) { \
         printf("INFO [%s:%d]: ", __FILE__, __LINE__); \
@@ -42,7 +44,6 @@ enum {
         printf("\n"); \
     } \
 } while(0)
-
 #define HH_ERR(...) do { \
     if(HH_LOG >= HH_LOG_ERR) { \
         fprintf(stderr, "ERROR [%s:%d]: ", __FILE__, __LINE__); \
@@ -50,69 +51,54 @@ enum {
         fprintf(stderr, "\n"); \
     } \
 } while(0)
-
 #else
 #define HH_DBG(...)
 #define HH_MSG(...)
 #define HH_ERR(...)
 #endif
 
-//
-// HH_UTIL
-//
-
+// min and max
 #define HH_MAX(x, y) (((x) > (y)) ? (x) : (y))
 #define HH_MIN(x, y) (((x) < (y)) ? (x) : (y))
 
+// useful attributes for function declarations
 #if defined(__GNUC__) || defined(__clang__)
 #define HH_UNUSED __attribute__((unused))
 #else
 #define HH_UNUSED
 #endif
-
 #if defined(__GNUC__) || defined(__clang__)
 #define HH_FALLTHROUGH __attribute__((fallthrough))
 #else
 #define HH_FALLTHROUGH
 #endif
 
+// stringify
 #define HH_STRINGIFY_HELPER(x) #x
 #define HH_STRINGIFY(x) HH_STRINGIFY_HELPER(x)
-#undef HH_STRINGIFY_HELPER
+// stringify booleans
+// example: printf("flag: %s\n", HH_STRINGIFY_BOOL(flag));
+#define HH_STRINGIFY_BOOL(x) ((x) ? "true" : "false")
 
-#define HH_ASSERT_BEFORE(cond) for(; !(cond); assert(cond))
+// standard assertion with variadic error message
 #define HH_ASSERT(cond, ...) do { if(cond) break; HH_ERR(__VA_ARGS__); assert(cond); } while(0)
 #define HH_ASSERT_UNREACHABLE(cond) HH_ASSERT(cond, "Unreachable!")
-
+// this is an assertion that will execute the statement 
+// or block that follows it before exiting
+#define HH_ASSERT_BEFORE(cond) for(; !(cond); assert(cond))
+// use this for unreachable branches
+// for example, default cases in switch blocks
 #define HH_UNREACHABLE HH_ASSERT_UNREACHABLE(false)
 
-// TODO: This should be an inline macro ideally, no block
+// TODO: These should be inline macros ideally, not blocks
 #define HH_MALLOC_CHECKED(var, size) do { \
 		(var) = malloc(size); \
 		HH_ASSERT(var != NULL, "Failed to allocate [%s].", #var); \
 	} while(0);
-
 #define HH_CALLOC_CHECKED(var, size) do { \
 		(var) = calloc(1, size); \
 		HH_ASSERT(var != NULL, "Failed to allocate [%s].", #var); \
 	} while(0);
-
-//
-// HH_ARGS
-//
-
-// template for parsing functions
-typedef void* (*hh_args_parse_t)(char*, int*);
-typedef void  (*hh_args_clean_t)(void*);
-
-bool
-hh_args_parse(int argc, char* argv[]);
-void
-hh_args_clean(void);
-
-//
-// HH_DARR
-//
 
 // Adapted from...
 // stb_ds.h - v0.67 - public domain data structures - Sean Barrett 2019
@@ -138,10 +124,6 @@ hh_args_clean(void);
 		size_t _tmp = hh_darradd(arr, strlen(str)) - 1; \
 		strcpy((arr) + _tmp, (str)); \
 	} while(0)
-
-// 
-// HH_PATH
-//
 
 // hh_path_alloc
 // [in const] raw: a cstr representing a raw path
@@ -201,10 +183,8 @@ hh_path_parent_alloc(const char* path); // returns a new allocated path
 // Frees the path and sets it to NULL
 #define hh_path_free hh_darrfree
 
-//
-// CSTD
-//
-
+// each enumeration represents a major release of the C standard
+// this allows you to check the standard at runtime
 enum hh_cstd {
 	HH_CSTD_89 = 0,
 	HH_CSTD_90 = 1,
@@ -215,57 +195,57 @@ enum hh_cstd {
 	HH_CSTD_23 = 202311
 };
 
+// hh_cstd_supported
+// [in] cstd: the standard you want to check
+// return: truthy if the standard is supported, false otherwise
 bool
 hh_cstd_supported(enum hh_cstd cstd);
 
-//
-// HH_SPAN
-//
-
+// represents a non-owning view into a char buffer
 typedef struct {
 	const char* ptr;
 	size_t len;
 } hh_span_t;
 
+// advances the span to the start of the next token
+// returns truthy unless the end of the buffer has been reached 
+// and no more tokens remain
 bool
 hh_span_next(hh_span_t* span);
+// parses a double from the span's current token
 bool
 hh_span_double(const hh_span_t span, double* out);
+// parses a long from the span's current token
 bool
 hh_span_long(const hh_span_t span, long* out);
+// parses a size_t from the span's current token
 bool
 hh_span_size_t(const hh_span_t span, size_t* out);
+// returns true if the span's current token equals `other`
 bool
 hh_span_equals(const hh_span_t span, const char* other);
 
-//
-// HH_MISC
-//
-
+// reads an entire file given by path
+// returns NULL on read failure
 char* 
 hh_read_entire_file(const char* path);
+// returns a pointer to the same string that 
+// has been advanced past any initial whitespace
 const char*
-hh_skip_whitespace(const char* ptr);
+hh_skip_whitespace(const char* str);
+// returns truthy when the `str` starts with `prefix`
 bool
 hh_has_prefix(const char* str, const char* prefix);
+// returns truthy when the `str` ens with `suffix`
 bool
 hh_has_suffix(const char* str, const char* suffix);
-
+//
 #endif // HH_H__
 
-//
-// END OF PUBLIC HEADER
-//
-
-//
-// 
-//
-
-//
-// START OF INTERNAL HEADER
-//
-
 #ifdef HH_H__
+// remove definition of this helper macro
+#undef HH_STRINGIFY_HELPER
+
 // initial capacity of dynamic array
 #ifndef HH_ARR_CAP_DEFAULT
 #define HH_ARR_CAP_DEFAULT 16
@@ -293,91 +273,11 @@ ptrdiff_t // NO PREFIX STRIPPING
 hh_getdelim(char** buf, size_t* bufsiz, int delimiter, FILE* fp);
 ptrdiff_t // NO PREFIX STRIPPING
 hh_getline(char** buf, size_t* bufsiz, FILE* fp);
-
-// calculate edition using preprocessor
-#ifdef __STDC__
-#define HH_CSTD 0L
-#ifdef __STDC_VERSION__
-#ifdef HH_CSTD
-#undef HH_CSTD
-#endif // HH_CSTD
-#define HH_CSTD 1L
-#if(__STDC_VERSION__ >= 199409L)
-#ifdef HH_CSTD
-#undef HH_CSTD
-#endif // HH_CSTD
-#define HH_CSTD 199409L
-#endif // 199409L
-#if(__STDC_VERSION__ >= 199901L)
-#ifdef HH_CSTD
-#undef HH_CSTD
-#endif // HH_CSTD
-#define HH_CSTD 199901L
-#endif // 199901L
-#if(__STDC_VERSION__ >= 201112L)
-#ifdef HH_CSTD
-#undef HH_CSTD
-#endif // HH_CSTD
-#define HH_CSTD 201112L
-#endif // 201112L
-#if(__STDC_VERSION__ >= 201710L)
-#ifdef HH_CSTD
-#undef HH_CSTD
-#endif // HH_CSTD
-#define HH_CSTD 201710L
-#endif // 201710L
-#if(__STDC_VERSION__ >= 202311L)
-#ifdef HH_CSTD
-#undef HH_CSTD
-#endif // HH_CSTD
-#define HH_CSTD 202311L
-#endif // 202311L
-#endif // __STDC_VERSION__
-#endif // __STD__
-
-// TODO: This needs a major rework with...
-// - help message print outs
-// - ability to leave flag_/flag_long_ NULL
-// - etc
-
-#ifdef HH_ARGS
-
-struct hh_args_t {
-#define HH_ARG_REQ(ty_, default_, name_, ...) ty_ name_;
-#define HH_ARG_OPT(ty_, default_, name_, ...) ty_ name_;
-	HH_ARGS
-#undef HH_ARG_REQ
-#undef HH_ARG_OPT
-	void* inner_;
-};
-
-static struct hh_args_t HH_H__hh_args = {
-#define HH_ARG_REQ(ty_, default_, name_, ...) .name_ = default_,
-#define HH_ARG_OPT(ty_, default_, name_, ...) .name_ = default_,
-	HH_ARGS
-#undef HH_ARG_REQ
-#undef HH_ARG_OPT
-	.inner_ = NULL
-}; extern struct hh_args_t* const hh_args;
-
-#endif // HH_ARGS
+//
 #endif // HH_H__
 
-//
-// END OF INTERNAL HEADER
-//
-
-//
-// 
-//
-
-//
-// START OF IMPLEMENTATION
-//
-
 #ifdef HH_IMPLEMENTATION
-
-#include <string.h>
+// platform-dependent includes
 #ifdef _WIN32
 #include <io.h>
 #include <windows.h>
@@ -386,78 +286,6 @@ static struct hh_args_t HH_H__hh_args = {
 #include <unistd.h>
 #include <sys/stat.h>
 #endif // _WIN32
-
-bool
-hh_cstd_supported(enum hh_cstd cstd) {
-	return HH_CSTD >= (long) (cstd);
-}
-
-#ifdef HH_ARGS
-
-struct hh_args_t* const hh_args = &HH_H__hh_args;
-
-bool
-hh_args_parse(int argc, char* argv[]) {
-	HH_ASSERT(argc > 0 && argv != NULL, "Unreachable!");
-#define HH_ARG_REQ(...) + 1
-#define HH_ARG_OPT(...) + 0
-	int argc_min = 0 HH_ARGS;
-#undef HH_ARG_REQ
-#undef HH_ARG_OPT
-	if(argc < 1 + argc_min) {
-		HH_ERR("Expected at least %d CLI arguments, received %d.", 1 + argc_min, argc);
-		return false;
-	}
-	int i = 1;
-#define HH_ARG_REQ(ty_, default_, name_, flag_, flag_long_, desc_, parser_, ...) hh_args->name_ = (ty_) parser_(argv[i++]);
-#define HH_ARG_OPT(...)
-    HH_ARGS
-#undef HH_ARG_REQ
-#undef HH_ARG_OPT
-	int ok;
-	hh_args_parse_t temp;
-	for(i = 1 + argc_min; i < argc; i++) {
-#define HH_ARG_REQ(...)
-#define HH_ARG_OPT(ty_, default_, name_, flag_, flag_long_, desc_, parser_, ...) \
-		if(!strcmp(argv[i], flag_) || !strcmp(argv[i], flag_long_)) { \
-			ok = 1; \
-			temp = parser_; \
-			if(temp) { \
-				if(i + 1 >= argc) { \
-					HH_ERR("Expected value for [" flag_ "] flag."); \
-					return false; \
-				} \
-				hh_args->name_ = (ty_) (temp)(argv[++i], &ok); \
-				if(!ok) { \
-					HH_ERR("Unable to parse [%s] as %s.", argv[i], HH_STR(ty_)); \
-					return false; \
-				} \
-			} else hh_args->name_ = (ty_) ((uintptr_t) (!(hh_args->name_))); \
-			continue; \
-		}
-        HH_ARGS
-#undef HH_ARG_REQ
-#undef HH_ARG_OPT
-        HH_ERR("Failed to parse argument [%s].", argv[i]);
-    }
-	return true;
-}
-
-void
-hh_args_clean(void) {
-	hh_args_clean_t temp;
-#define HH_ARG_REQ(ty_, default_, name_, flag_, flag_long_, desc_, parser_, clean_) \
-	temp = clean_; \
-	if(temp) (temp)(hh_args->name_);
-#define HH_ARG_OPT(ty_, default_, name_, flag_, flag_long_, desc_, parser_, clean_) \
-	temp = clean_; \
-	if(temp) (temp)((void*) hh_args->name_);
-    HH_ARGS
-#undef HH_ARG_REQ
-#undef HH_ARG_OPT
-}
-
-#endif // HH_ARGS
 
 void*
 HH_H__impl_darrnew(size_t cap, size_t elem_size) {
@@ -657,6 +485,155 @@ hh_path_parent_alloc(const char* path) {
 	return path_parent;
 }
 
+// calculate edition using preprocessor
+#ifdef __STDC__
+#define HH_CSTD 0L
+#ifdef __STDC_VERSION__
+#ifdef HH_CSTD
+#undef HH_CSTD
+#endif // HH_CSTD
+#define HH_CSTD 1L
+#if(__STDC_VERSION__ >= 199409L)
+#ifdef HH_CSTD
+#undef HH_CSTD
+#endif // HH_CSTD
+#define HH_CSTD 199409L
+#endif // 199409L
+#if(__STDC_VERSION__ >= 199901L)
+#ifdef HH_CSTD
+#undef HH_CSTD
+#endif // HH_CSTD
+#define HH_CSTD 199901L
+#endif // 199901L
+#if(__STDC_VERSION__ >= 201112L)
+#ifdef HH_CSTD
+#undef HH_CSTD
+#endif // HH_CSTD
+#define HH_CSTD 201112L
+#endif // 201112L
+#if(__STDC_VERSION__ >= 201710L)
+#ifdef HH_CSTD
+#undef HH_CSTD
+#endif // HH_CSTD
+#define HH_CSTD 201710L
+#endif // 201710L
+#if(__STDC_VERSION__ >= 202311L)
+#ifdef HH_CSTD
+#undef HH_CSTD
+#endif // HH_CSTD
+#define HH_CSTD 202311L
+#endif // 202311L
+#endif // __STDC_VERSION__
+#endif // __STD__
+
+bool
+hh_cstd_supported(enum hh_cstd cstd) {
+	return HH_CSTD >= (long) (cstd);
+}
+
+bool
+hh_span_next(hh_span_t* span) {
+	span->ptr += span->len;
+	span->len = 0;
+	const char* ptr = span->ptr;
+    while(strchr(" \t\r\n", *ptr) && (*ptr) != '\0') ++ptr;
+	span->ptr = ptr;
+    while(strchr(" \t\r\n", *ptr) == NULL && (*ptr) != '\0') ++ptr;
+	span->len = (size_t) (ptr - span->ptr);
+	return (span->len != 0);
+}
+
+bool
+hh_span_double(const hh_span_t span, double* out) {
+	char* endptr = NULL;
+	double temp;
+    temp = strtod(span.ptr, &endptr);
+    if(endptr == NULL) return false;
+    if(endptr != (span.ptr + (ptrdiff_t) span.len)) return false;
+	*out = temp;
+	return true;
+}
+
+bool
+hh_span_long(const hh_span_t span, long* out) {
+	char* endptr = NULL;
+	long temp;
+    temp = strtol(span.ptr, &endptr, 10);
+    if(endptr == NULL) return false;
+    if(endptr != (span.ptr + (ptrdiff_t) span.len)) return false;
+	*out = temp;
+	return true;
+}
+
+bool
+hh_span_size_t(const hh_span_t span, size_t* out) {
+	long temp;
+	if(!hh_span_long(span, &temp)) return false;
+	if(temp < 0) return false;
+	*out = (size_t) temp;
+	return true;
+}
+
+bool
+hh_span_equals(const hh_span_t span, const char* other) {
+	size_t len = strlen(other);
+	if(span.len != len) return false;
+	return strncmp(span.ptr, other, span.len) == 0;
+}
+
+#define HH_CHECK_STREAM(stream, cond, ...) if(!(cond)) { \
+		fclose((stream)); \
+		HH_ERR(__VA_ARGS__); \
+	} \
+	if(!(cond))
+
+char* 
+hh_read_entire_file(const char* path) {
+    FILE* f = fopen(path, "rb");
+	if(f == NULL) {
+		HH_ERR("Failed to open file at path [%s].", path);
+		return NULL;
+	}
+	HH_CHECK_STREAM(f, !fseek(f, 0, SEEK_END), 
+		"Failed to seek to end of file while reading [%s].", path) return NULL;
+    long size_temp = ftell(f);
+	HH_CHECK_STREAM(f, size_temp >= 0, "Failed to read file size [%s].", path) 
+		return NULL;
+	unsigned long size = (unsigned long) size_temp;
+    rewind(f);
+	char* buf = NULL;
+	(void) hh_darradd(buf, size);
+	HH_CHECK_STREAM(f, buf != NULL, "Failed to allocate buffer for file contents [%s].", path) 
+		return NULL;
+    size_t read_size = fread(buf, 1, size, f);
+	HH_CHECK_STREAM(f, read_size == (size_t) size, "Failed to read entire file into buffer [%s].", path) {
+		hh_darrfree(buf);
+		return NULL;
+	}
+	(void) hh_darradd(buf, '\0');
+    fclose(f);
+    return buf;
+}
+#undef HH_CHECK_STREAM
+
+const char*
+hh_skip_whitespace(const char* ptr) {
+	while(strchr(" \t\r\n", *ptr) && (*ptr) != '\0') ++ptr;
+	return ptr;
+}
+
+bool
+hh_has_prefix(const char* str, const char* prefix) {
+	return strncmp(str, prefix, strlen(prefix)) == 0;
+}
+
+bool
+hh_has_suffix(const char* str, const char* suffix) {
+    size_t len_str = strlen(str);
+    size_t len_suffix = strlen(suffix);
+    return len_suffix <= len_str && !strcmp(str + len_str - len_suffix, suffix);
+}
+
 /*-
  * Copyright (c) 2011 The NetBSD Foundation, Inc.
  * All rights reserved.
@@ -727,126 +704,13 @@ ptrdiff_t
 hh_getline(char** buf, size_t* bufsiz, FILE* fp) {
 	return hh_getdelim(buf, bufsiz, '\n', fp);
 }
-
-bool
-hh_has_suffix(const char* str, const char* suffix) {
-    size_t len_str = strlen(str);
-    size_t len_suffix = strlen(suffix);
-    return len_suffix <= len_str && !strcmp(str + len_str - len_suffix, suffix);
-}
-
-bool
-hh_span_next(hh_span_t* span) {
-	span->ptr += span->len;
-	span->len = 0;
-	const char* ptr = span->ptr;
-    while(strchr(" \t\r\n", *ptr) && (*ptr) != '\0') ++ptr;
-	span->ptr = ptr;
-    while(strchr(" \t\r\n", *ptr) == NULL && (*ptr) != '\0') ++ptr;
-	span->len = (size_t) (ptr - span->ptr);
-	return (span->len != 0);
-}
-
-bool
-hh_span_double(const hh_span_t span, double* out) {
-	char* endptr = NULL;
-	double temp;
-    temp = strtod(span.ptr, &endptr);
-    if(endptr == NULL) return false;
-    if(endptr != (span.ptr + (ptrdiff_t) span.len)) return false;
-	*out = temp;
-	return true;
-}
-
-bool
-hh_span_long(const hh_span_t span, long* out) {
-	char* endptr = NULL;
-	long temp;
-    temp = strtol(span.ptr, &endptr, 10);
-    if(endptr == NULL) return false;
-    if(endptr != (span.ptr + (ptrdiff_t) span.len)) return false;
-	*out = temp;
-	return true;
-}
-
-bool
-hh_span_size_t(const hh_span_t span, size_t* out) {
-	long temp;
-	if(!hh_span_long(span, &temp)) return false;
-	if(temp < 0) return false;
-	*out = (size_t) temp;
-	return true;
-}
-
-bool
-hh_span_equals(const hh_span_t span, const char* other) {
-	size_t len = strlen(other);
-	if(span.len != len) return false;
-	return strncmp(span.ptr, other, span.len) == 0;
-}
-
-const char*
-hh_skip_whitespace(const char* ptr) {
-	while(strchr(" \t\r\n", *ptr) && (*ptr) != '\0') ++ptr;
-	return ptr;
-}
-
-bool
-hh_has_prefix(const char* str, const char* prefix) {
-	return strncmp(str, prefix, strlen(prefix)) == 0;
-}
-
-#define HH_CHECK_STREAM(stream, cond, ...) if(!(cond)) { \
-		fclose((stream)); \
-		HH_ERR(__VA_ARGS__); \
-	} \
-	if(!(cond))
-
-char* 
-hh_read_entire_file(const char* path) {
-    FILE* f = fopen(path, "rb");
-	if(f == NULL) {
-		HH_ERR("Failed to open file at path [%s].", path);
-		return NULL;
-	}
-	HH_CHECK_STREAM(f, !fseek(f, 0, SEEK_END), 
-		"Failed to seek to end of file while reading [%s].", path) return NULL;
-    long size_temp = ftell(f);
-	HH_CHECK_STREAM(f, size_temp >= 0, "Failed to read file size [%s].", path) 
-		return NULL;
-	unsigned long size = (unsigned long) size_temp;
-    rewind(f);
-	char* buf = NULL;
-	(void) hh_darradd(buf, size);
-	HH_CHECK_STREAM(f, buf != NULL, "Failed to allocate buffer for file contents [%s].", path) 
-		return NULL;
-    size_t read_size = fread(buf, 1, size, f);
-	HH_CHECK_STREAM(f, read_size == (size_t) size, "Failed to read entire file into buffer [%s].", path) {
-		hh_darrfree(buf);
-		return NULL;
-	}
-	(void) hh_darradd(buf, '\0');
-    fclose(f);
-    return buf;
-}
-#undef HH_CHECK_STREAM
-
+//
 #endif // HH_IMPLEMENTATION
 
-//
-// END OF IMPLEMENTATION
-//
-
-//
-//
-//
-
-//
-// START OF PREFIX STRIPPING
-//
-
 #ifndef HH_H__STRIP_PREFIXES
+//
 #define HH_H__STRIP_PREFIXES
+//
 #ifdef HH_STRIP_PREFIXES
 #define MAX HH_MAX
 #define MIN HH_MIN
@@ -856,16 +720,13 @@ hh_read_entire_file(const char* path) {
 #define MSG HH_MSG
 #define ERR HH_ERR
 #define STRINGIFY HH_STRINGIFY
+#define STRINGIFY_BOOL HH_STRINGIFY_BOOL
 #define ASSERT_BEFORE HH_ASSERT_BEFORE
 #define ASSERT HH_ASSERT
 #define ASSERT_UNREACHABLE HH_ASSERT_UNREACHABLE
 #define UNREACHABLE HH_UNREACHABLE
 #define MALLOC_CHECKED HH_MALLOC_CHECKED
 #define CALLOC_CHECKED HH_CALLOC_CHECKED
-#define ARG_REQ HH_ARG_REQ
-#define ARG_OPT HH_ARG_OPT
-#define args_parse hh_args_parse
-#define args_clean hh_args_clean
 #define darrclear hh_darrclear
 #define darrfree hh_darrfree
 #define darrlast hh_darrlast
@@ -898,9 +759,11 @@ hh_read_entire_file(const char* path) {
 #define span_long hh_span_long
 #define span_size_t hh_span_size_t
 #define span_equals hh_span_equals
+#define read_entire_file hh_read_entire_file
 #define skip_whitespace hh_skip_whitespace
 #define has_prefix hh_has_prefix
 #define has_suffix hh_has_suffix
-#define read_entire_file hh_read_entire_file
+//
 #endif // HH_STRIP_PREFIXES
+//
 #endif // HH_H__STRIP_PREFIXES
