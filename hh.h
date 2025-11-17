@@ -30,28 +30,43 @@ enum {
 // all logging functions have the same behavior as printf,
 // HH_ERR logs to stderr instead of stdout
 #ifdef HH_LOG
+#if HH_LOG >= HH_LOG_DBG
+#define HH_DBG_BLOCK if(printf("DEBUG [%s:%d]: ", __FILE__, __LINE__), true)
 #define HH_DBG(...) do { \
-    if(HH_LOG >= HH_LOG_DBG) { \
-        printf("DEBUG [%s:%d]: ", __FILE__, __LINE__); \
-        printf(__VA_ARGS__); \
-        printf("\n"); \
-    } \
-} while(0)
-#define HH_MSG(...) do { \
-    if(HH_LOG >= HH_LOG_MSG) { \
-        printf("INFO [%s:%d]: ", __FILE__, __LINE__); \
-        printf(__VA_ARGS__); \
-        printf("\n"); \
-    } \
-} while(0)
-#define HH_ERR(...) do { \
-    if(HH_LOG >= HH_LOG_ERR) { \
-        fprintf(stderr, "ERROR [%s:%d]: ", __FILE__, __LINE__); \
-        fprintf(stderr, __VA_ARGS__); \
-        fprintf(stderr, "\n"); \
-    } \
+	printf("DEBUG [%s:%d]: ", __FILE__, __LINE__); \
+	printf(__VA_ARGS__); \
+	printf("\n"); \
 } while(0)
 #else
+#define HH_DBG_BLOCK false
+#define HH_DBG(...)
+#endif // HH_DBG
+#if HH_LOG >= HH_LOG_MSG
+#define HH_MSG_BLOCK if(printf("INFO [%s:%d]: ", __FILE__, __LINE__), true)
+#define HH_MSG(...) do { \
+    printf("INFO [%s:%d]: ", __FILE__, __LINE__); \
+	printf(__VA_ARGS__); \
+	printf("\n"); \
+} while(0)
+#else
+#define HH_MSG_BLOCK if(false)
+#define HH_MSG(...)
+#endif // HH_MSG
+#if HH_LOG >= HH_LOG_ERR
+#define HH_ERR_BLOCK if(fprintf(stderr, "ERROR [%s:%d]: ", __FILE__, __LINE__), true)
+#define HH_ERR(...) do { \
+	fprintf(stderr, "ERROR [%s:%d]: ", __FILE__, __LINE__); \
+	fprintf(stderr, __VA_ARGS__); \
+	fprintf(stderr, "\n"); \
+} while(0)
+#else
+#define HH_ERR_BLOCK if(false)
+#define HH_ERR(...)
+#endif // HH_LOG
+#else
+#define HH_DBG_BLOCK if(false)
+#define HH_MSG_BLOCK if(false)
+#define HH_ERR_BLOCK if(false)
 #define HH_DBG(...)
 #define HH_MSG(...)
 #define HH_ERR(...)
@@ -60,6 +75,9 @@ enum {
 // min and max
 #define HH_MAX(x, y) (((x) > (y)) ? (x) : (y))
 #define HH_MIN(x, y) (((x) < (y)) ? (x) : (y))
+
+// array length (ONLY for stack-allocated arrays)
+#define HH_ARR_LEN(arr) (sizeof(arr) / sizeof((arr)[0]))
 
 // useful attributes for function declarations
 #if defined(__GNUC__) || defined(__clang__)
@@ -115,8 +133,8 @@ enum {
 #define hh_darradd(arr, n)   (HH_H__impl_darradd((void**)&(arr), (n), sizeof *(arr)))
 #define hh_darrlen(arr)      ((arr == NULL) ? 0 : hh_darrheader(arr)->len)
 #define hh_darrcap(arr)      ((arr == NULL) ? 0 : hh_darrheader(arr)->cap)
-// TODO: There should be an hh_arrdelswap(arr, idx),
-// which replaces the value at idx with the final element and decrements length
+#define hh_darrswap(arr, i, j) HH_H__impl_darrswap((arr), (i), (j))
+#define hh_darrswapdel(arr, i) ((i) < hh_darrlen(arr) ? (HH_H__impl_darrswap((arr), (i), hh_darrlen(arr) - 1), hh_darrpop(arr)) : NULL)
 
 #define hh_darrputstr(arr, str) do { \
 		if(hh_darrlen(arr) == 0 || (hh_darrlen(arr) != 0 && hh_darrlast(arr) != '\0')) hh_darrput(arr, '\0'); \
@@ -136,22 +154,22 @@ enum {
 char*
 hh_path_alloc(const char* raw);
 // hh_path_exists
-// [in const] path: a path originally constructed with hh_path_alloc or hh_path_parent_alloc
+// [in const] path: a path originally constructed with hh_path_alloc
 // return: truthy if path exists, false otherwise
 bool
 hh_path_exists(const char* path);
 // hh_path_is_file
-// [in const] path: a path originally constructed with hh_path_alloc or hh_path_parent_alloc
+// [in const] path: a path originally constructed with hh_path_alloc
 // return: truthy if path exists and points to a file, false otherwise
 bool
 hh_path_is_file(const char* path);
 // hh_path_is_root
-// [in const] path: a path originally constructed with hh_path_alloc or hh_path_parent_alloc
+// [in const] path: a path originally constructed with hh_path_alloc
 // return: truthy if path is a root path (eg. "C:/" or "/"), false otherwise
 bool 
 hh_path_is_root(const char* path);
 // hh_path_join
-// [in] path: a path originally constructed with hh_path_alloc or hh_path_parent_alloc
+// [in] path: a path originally constructed with hh_path_alloc
 // [in] ...: any number of path elements that should be joined
 // return: same as [in] path
 // This is structued as a macro to avoid the case where a reallocation
@@ -159,26 +177,20 @@ hh_path_is_root(const char* path);
 // NULL is returned when the provided path is NULL
 #define hh_path_join(path, ...) ((path) = HH_H__impl_path_join((path), __VA_ARGS__, NULL))
 // hh_path_name
-// [in const] path: a path originally constructed with hh_path_alloc or hh_path_parent_alloc
+// [in const] path: a path originally constructed with hh_path_alloc
 // return: a pointer to the first character of the last path element
 // This function does not allocate
 const char*
 hh_path_name(const char* path);
 // hh_path_parent
-// [in] path: a path originally constructed with hh_path_alloc or hh_path_parent_alloc
+// [in] path: a path originally constructed with hh_path_alloc
 // return: same as [in] path
 // Removes the final element from the path
 // The return pointer is always equal to the given path
 char*
 hh_path_parent(char* path);
-// hh_path_parent_alloc
-// [in const] path: a path originally constructed with hh_path_alloc or hh_path_parent_alloc
-// return: a freshly allocated path to [in] path's parent
-// This function returns NULL on allocation failure
-char*
-hh_path_parent_alloc(const char* path); // returns a new allocated path
 // hh_path_free
-// [in] path: a path originally constructed with hh_path_alloc or hh_path_parent_alloc
+// [in] path: a path originally constructed with hh_path_alloc
 // return: void
 // Frees the path and sets it to NULL
 #define hh_path_free hh_darrfree
@@ -242,6 +254,26 @@ hh_has_suffix(const char* str, const char* suffix);
 //
 #endif // HH_H__
 
+//
+//
+//
+
+//
+//
+//
+
+//
+//
+//
+
+//
+//
+//
+
+//
+//
+//
+
 #ifdef HH_H__
 // remove definition of this helper macro
 #undef HH_STRINGIFY_HELPER
@@ -263,6 +295,8 @@ void
 HH_H__impl_darrgrow(void** arrp, size_t n, size_t elem_size);
 size_t
 HH_H__impl_darradd(void** arrp, size_t n, size_t elem_size);
+bool 
+HH_H__impl_darrswap(void* arrp, size_t i, size_t j);
 
 // helper functions for hh_path
 char*
@@ -326,6 +360,19 @@ HH_H__impl_darradd(void** arrp, size_t n, size_t elem_size) {
     }
     return len;
 }
+
+bool 
+HH_H__impl_darrswap(void* arrp, size_t i, size_t j) {
+    if(i == j) return true;
+	if(arrp == NULL) return false;
+    size_t elem_size = hh_darrheader(arrp)->elem_size;
+    char tmp[elem_size];
+    memcpy(tmp, ((char*) arrp) + i * elem_size, elem_size);
+    memcpy(((char*) arrp) + i * elem_size, ((char*) arrp) + j * elem_size, elem_size);
+    memcpy(((char*) arrp) + j * elem_size, tmp, elem_size);
+	return true;
+}
+
 
 char*
 hh_path_alloc_impl(const char* raw) {
@@ -456,33 +503,6 @@ hh_path_parent(char* path) {
 	}
 #endif
 	return path;
-}
-
-char*
-hh_path_parent_alloc(const char* path) {
-	if(path == NULL) return NULL;
-	if(hh_path_is_root(path)) return NULL;
-	char* path_parent = NULL;
-	hh_darrputstr(path_parent, path);
-	while(hh_darrlast(path_parent) != '/') (void) hh_darrpop(path_parent);
-#ifdef _WIN32
-	if(hh_darrlen(path_parent) == 3 && path_parent[0] >= 'A' && path_parent[0] <= 'Z' && path_parent[1] == ':' && path_parent[2] == '/') {
-		if(hh_darrlen(path) == 4) hh_darrfree(path_parent);
-		else hh_darrput(path_parent, '\0');
-	} else {
-		hh_darrpop(path_parent);
-		hh_darrput(path_parent, '\0');
-	}
-#else
-	if(hh_darrlen(path_parent) == 1 && path_parent[0] == '/') {
-		if(hh_darrlen(path) == 2) hh_darrfree(path_parent);
-		else hh_darrput(path_parent, '\0');
-	} else {
-		(void) hh_darrpop(path_parent);
-		hh_darrput(path_parent, '\0');
-	}
-#endif
-	return path_parent;
 }
 
 // calculate edition using preprocessor
@@ -714,11 +734,15 @@ hh_getline(char** buf, size_t* bufsiz, FILE* fp) {
 #ifdef HH_STRIP_PREFIXES
 #define MAX HH_MAX
 #define MIN HH_MIN
+#define ARR_LEN HH_ARR_LEN
 #define UNUSED HH_UNUSED
 #define FALLTHROUGH HH_FALLTHROUGH
 #define DBG HH_DBG
 #define MSG HH_MSG
 #define ERR HH_ERR
+#define DBG_BLOCK HH_DBG_BLOCK
+#define MSG_BLOCK HH_MSG_BLOCK
+#define ERR_BLOCK HH_ERR_BLOCK
 #define STRINGIFY HH_STRINGIFY
 #define STRINGIFY_BOOL HH_STRINGIFY_BOOL
 #define ASSERT_BEFORE HH_ASSERT_BEFORE
@@ -735,6 +759,8 @@ hh_getline(char** buf, size_t* bufsiz, FILE* fp) {
 #define darradd hh_darradd
 #define darrlen hh_darrlen
 #define darrcap hh_darrcap
+#define darrswap hh_darrswap
+#define darrswapdel hh_darrswapdel
 #define darrputstr hh_darrputstr
 #define path_alloc hh_path_alloc
 #define path_exists hh_path_exists
@@ -743,7 +769,6 @@ hh_getline(char** buf, size_t* bufsiz, FILE* fp) {
 #define path_join hh_path_join
 #define path_name hh_path_name
 #define path_parent hh_path_parent
-#define path_parent_alloc hh_path_parent_alloc
 #define path_free hh_path_free
 #define cstd_supported hh_cstd_supported
 #define CSTD_89 HH_CSTD_89
