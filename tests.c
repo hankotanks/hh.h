@@ -130,14 +130,14 @@ test_args(int argc, char* argv[]) {
 }
 
 void
-test_cstd(void) {
-    DBG("C89 support: %s", STRINGIFY_BOOL(cstd_supported(CSTD_89)));
-    DBG("C90 support: %s", STRINGIFY_BOOL(cstd_supported(CSTD_90)));
-    DBG("C94 support: %s", STRINGIFY_BOOL(cstd_supported(CSTD_94)));
-    DBG("C99 support: %s", STRINGIFY_BOOL(cstd_supported(CSTD_99)));
-    DBG("C11 support: %s", STRINGIFY_BOOL(cstd_supported(CSTD_11)));
-    DBG("C17 support: %s", STRINGIFY_BOOL(cstd_supported(CSTD_17)));
-    DBG("C23 support: %s", STRINGIFY_BOOL(cstd_supported(CSTD_23)));
+test_edition(void) {
+    DBG("C89 support: %s", STRINGIFY_BOOL(edition_supported(EDITION_89)));
+    DBG("C90 support: %s", STRINGIFY_BOOL(edition_supported(EDITION_90)));
+    DBG("C94 support: %s", STRINGIFY_BOOL(edition_supported(EDITION_94)));
+    DBG("C99 support: %s", STRINGIFY_BOOL(edition_supported(EDITION_99)));
+    DBG("C11 support: %s", STRINGIFY_BOOL(edition_supported(EDITION_11)));
+    DBG("C17 support: %s", STRINGIFY_BOOL(edition_supported(EDITION_17)));
+    DBG("C23 support: %s", STRINGIFY_BOOL(edition_supported(EDITION_23)));
 }
 
 void
@@ -155,7 +155,7 @@ main(int argc, char* argv[]) {
     srand((unsigned int) time(NULL));
     // start of tests
     test_args(argc, argv);
-    test_cstd();
+    test_edition();
     test_path();
     test_darr();
     test_util();

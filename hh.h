@@ -108,32 +108,30 @@ enum {
 // for example, default cases in switch blocks
 #define HH_UNREACHABLE HH_ASSERT_UNREACHABLE(false)
 
-// TODO: These should be inline macros ideally, not blocks
-#define HH_MALLOC_CHECKED(var, size) do { \
-		(var) = malloc(size); \
-		HH_ASSERT(var != NULL, "Failed to allocate [%s].", #var); \
-	} while(0);
-#define HH_CALLOC_CHECKED(var, size) do { \
-		(var) = calloc(1, size); \
-		HH_ASSERT(var != NULL, "Failed to allocate [%s].", #var); \
-	} while(0);
+// wrappers that assert allocation success
+void*
+hh_malloc_checked(size_t size);
+void*
+hh_calloc_checked(size_t num, size_t size);
 
 // Adapted from...
 // stb_ds.h - v0.67 - public domain data structures - Sean Barrett 2019
 
-#define hh_darrheader(arr)   (((hh_darrheader_t*) arr) - 1)
-#define hh_darrnew(arr)      ((arr) = HH_H__impl_darrnew(HH_ARR_CAP_DEFAULT, sizeof(*arr)))
-#define hh_darrgrow(arr, n)  (HH_H__impl_darrgrow((void**) &(arr), (n), sizeof(*(arr))), (arr))
+#define hh_darrheader(arr)     (((hh_darrheader_t*) arr) - 1)
+#define hh_darrnew(arr)        ((arr) = HH_H__impl_darrnew(HH_ARR_CAP_DEFAULT, sizeof(*arr)))
+#define hh_darrgrow(arr, n)    (HH_H__impl_darrgrow((void**) &(arr), (n), sizeof(*(arr))), (arr))
 // PUBLIC API
-#define hh_darrclear(arr)    ((arr == NULL) ? 0 : (hh_darrheader(arr)->len = 0))
-#define hh_darrfree(arr)     ((void) ((arr) ? free(hh_darrheader(arr)) : (void) 0), (arr) = NULL)
-#define hh_darrlast(arr)     ((arr)[hh_darrheader(arr)->len - 1])
-#define hh_darrput(arr, val) ((void) hh_darrgrow(arr, 1), (arr)[(hh_darrheader(arr)->len)++] = (val))
-#define hh_darrpop(arr)      ((arr)[--(hh_darrheader(arr)->len)])
-#define hh_darradd(arr, n)   (HH_H__impl_darradd((void**)&(arr), (n), sizeof *(arr)))
-#define hh_darrlen(arr)      ((arr == NULL) ? 0 : hh_darrheader(arr)->len)
-#define hh_darrcap(arr)      ((arr == NULL) ? 0 : hh_darrheader(arr)->cap)
-#define hh_darrswap(arr, i, j) HH_H__impl_darrswap((arr), (i), (j))
+#define hh_darrclear(arr)      ((arr == NULL) ? 0 : (hh_darrheader(arr)->len = 0))
+#define hh_darrfree(arr)       ((void) ((arr) ? free(hh_darrheader(arr)) : (void) 0), (arr) = NULL)
+#define hh_darrlast(arr)       ((arr)[hh_darrheader(arr)->len - 1])
+#define hh_darrput(arr, val)   ((void) hh_darrgrow(arr, 1), (arr)[(hh_darrheader(arr)->len)++] = (val))
+#define hh_darrpop(arr)        ((arr)[--(hh_darrheader(arr)->len)])
+#define hh_darradd(arr, n)     (HH_H__impl_darradd((void**)&(arr), (n), sizeof *(arr)))
+#define hh_darrlen(arr)        ((arr == NULL) ? 0 : hh_darrheader(arr)->len)
+#define hh_darrcap(arr)        ((arr == NULL) ? 0 : hh_darrheader(arr)->cap)
+// returns truthy if swap succeeded
+// swap fails on empty dynamic arrays
+#define hh_darrswap(arr, i, j) (HH_H__impl_darrswap((arr), (i), (j)))
 #define hh_darrswapdel(arr, i) ((i) < hh_darrlen(arr) ? (HH_H__impl_darrswap((arr), (i), hh_darrlen(arr) - 1), hh_darrpop(arr)) : NULL)
 
 #define hh_darrputstr(arr, str) do { \
@@ -197,21 +195,21 @@ hh_path_parent(char* path);
 
 // each enumeration represents a major release of the C standard
 // this allows you to check the standard at runtime
-enum hh_cstd {
-	HH_CSTD_89 = 0,
-	HH_CSTD_90 = 1,
-	HH_CSTD_94 = 199409,
-	HH_CSTD_99 = 199901,
-	HH_CSTD_11 = 201112,
-	HH_CSTD_17 = 201710,
-	HH_CSTD_23 = 202311
+enum hh_edition {
+	HH_EDITION_89 = 0,
+	HH_EDITION_90 = 1,
+	HH_EDITION_94 = 199409,
+	HH_EDITION_99 = 199901,
+	HH_EDITION_11 = 201112,
+	HH_EDITION_17 = 201710,
+	HH_EDITION_23 = 202311
 };
 
-// hh_cstd_supported
-// [in] cstd: the standard you want to check
+// hh_edition_supported
+// [in] ed: the standard you want to check
 // return: truthy if the standard is supported, false otherwise
 bool
-hh_cstd_supported(enum hh_cstd cstd);
+hh_edition_supported(enum hh_edition ed);
 
 // represents a non-owning view into a char buffer
 typedef struct {
@@ -320,6 +318,20 @@ hh_getline(char** buf, size_t* bufsiz, FILE* fp);
 #include <unistd.h>
 #include <sys/stat.h>
 #endif // _WIN32
+
+void*
+hh_malloc_checked(size_t size) {
+	void* ptr = malloc(size);
+	HH_ASSERT(ptr != NULL, "Failed to allocate %zu bytes.", size);
+	return ptr;
+}
+
+void*
+hh_calloc_checked(size_t num, size_t size) {
+	void* ptr = calloc(num, size);
+	HH_ASSERT(ptr != NULL, "Failed to allocate %zu bytes.", size);
+	return ptr;
+}
 
 void*
 HH_H__impl_darrnew(size_t cap, size_t elem_size) {
@@ -507,48 +519,48 @@ hh_path_parent(char* path) {
 
 // calculate edition using preprocessor
 #ifdef __STDC__
-#define HH_CSTD 0L
+#define HH_EDITION 0L
 #ifdef __STDC_VERSION__
-#ifdef HH_CSTD
-#undef HH_CSTD
-#endif // HH_CSTD
-#define HH_CSTD 1L
+#ifdef HH_EDITION
+#undef HH_EDITION
+#endif // HH_EDITION
+#define HH_EDITION 1L
 #if(__STDC_VERSION__ >= 199409L)
-#ifdef HH_CSTD
-#undef HH_CSTD
-#endif // HH_CSTD
-#define HH_CSTD 199409L
+#ifdef HH_EDITION
+#undef HH_EDITION
+#endif // HH_EDITION
+#define HH_EDITION 199409L
 #endif // 199409L
 #if(__STDC_VERSION__ >= 199901L)
-#ifdef HH_CSTD
-#undef HH_CSTD
-#endif // HH_CSTD
-#define HH_CSTD 199901L
+#ifdef HH_EDITION
+#undef HH_EDITION
+#endif // HH_EDITION
+#define HH_EDITION 199901L
 #endif // 199901L
 #if(__STDC_VERSION__ >= 201112L)
-#ifdef HH_CSTD
-#undef HH_CSTD
-#endif // HH_CSTD
-#define HH_CSTD 201112L
+#ifdef HH_EDITION
+#undef HH_EDITION
+#endif // HH_EDITION
+#define HH_EDITION 201112L
 #endif // 201112L
 #if(__STDC_VERSION__ >= 201710L)
-#ifdef HH_CSTD
-#undef HH_CSTD
-#endif // HH_CSTD
-#define HH_CSTD 201710L
+#ifdef HH_EDITION
+#undef HH_EDITION
+#endif // HH_EDITION
+#define HH_EDITION 201710L
 #endif // 201710L
 #if(__STDC_VERSION__ >= 202311L)
-#ifdef HH_CSTD
-#undef HH_CSTD
-#endif // HH_CSTD
-#define HH_CSTD 202311L
+#ifdef HH_EDITION
+#undef HH_EDITION
+#endif // HH_EDITION
+#define HH_EDITION 202311L
 #endif // 202311L
 #endif // __STDC_VERSION__
 #endif // __STD__
 
 bool
-hh_cstd_supported(enum hh_cstd cstd) {
-	return HH_CSTD >= (long) (cstd);
+hh_edition_supported(enum hh_edition ed) {
+	return HH_EDITION >= (long) (ed);
 }
 
 bool
@@ -749,8 +761,8 @@ hh_getline(char** buf, size_t* bufsiz, FILE* fp) {
 #define ASSERT HH_ASSERT
 #define ASSERT_UNREACHABLE HH_ASSERT_UNREACHABLE
 #define UNREACHABLE HH_UNREACHABLE
-#define MALLOC_CHECKED HH_MALLOC_CHECKED
-#define CALLOC_CHECKED HH_CALLOC_CHECKED
+#define malloc_checked hh_malloc_checked
+#define calloc_checked hh_calloc_checked
 #define darrclear hh_darrclear
 #define darrfree hh_darrfree
 #define darrlast hh_darrlast
@@ -770,14 +782,14 @@ hh_getline(char** buf, size_t* bufsiz, FILE* fp) {
 #define path_name hh_path_name
 #define path_parent hh_path_parent
 #define path_free hh_path_free
-#define cstd_supported hh_cstd_supported
-#define CSTD_89 HH_CSTD_89
-#define CSTD_90 HH_CSTD_90
-#define CSTD_94 HH_CSTD_94
-#define CSTD_99 HH_CSTD_99
-#define CSTD_11 HH_CSTD_11
-#define CSTD_17 HH_CSTD_17
-#define CSTD_23 HH_CSTD_23
+#define edition_supported hh_edition_supported
+#define EDITION_89 HH_EDITION_89
+#define EDITION_90 HH_EDITION_90
+#define EDITION_94 HH_EDITION_94
+#define EDITION_99 HH_EDITION_99
+#define EDITION_11 HH_EDITION_11
+#define EDITION_17 HH_EDITION_17
+#define EDITION_23 HH_EDITION_23
 #define span_t hh_span_t
 #define span_next hh_span_next
 #define span_double hh_span_double
