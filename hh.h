@@ -214,29 +214,39 @@ hh_edition_supported(enum hh_edition ed);
 // represents a non-owning view into a char buffer
 typedef struct {
 	const char* ptr;
+	const char* delim;
 	size_t len;
+	size_t skips;
 } hh_span_t;
 
+// initialize a span and advance to the first token
+// NOTE: the delimiter can be changed at any point without causing issues
+bool
+hh_span_init(hh_span_t* span, const char* ptr, const char* delim);
 // advances the span to the start of the next token
 // returns truthy unless the end of the buffer has been reached 
 // and no more tokens remain
+// delim represents the expected dividers between tokens (excluding whitespace)
 bool
 hh_span_next(hh_span_t* span);
-// parses a double from the span's current token
+// advance to the next line, skipping all remaining tokens
 bool
-hh_span_double(const hh_span_t span, double* out);
-// parses a long from the span's current token
-bool
-hh_span_long(const hh_span_t span, long* out);
-// parses a size_t from the span's current token
-bool
-hh_span_size_t(const hh_span_t span, size_t* out);
+hh_span_next_line(hh_span_t* span);
 // returns true if the span's current token equals `other`
 bool
 hh_span_equals(const hh_span_t span, const char* other);
+// parse a given type from the span
+// does not advance to the next token
+bool
+hh_span_parse(const hh_span_t* span, const char* fmt, void* out);
+// same as above, but advances the span ot the next token
+// so hh_span_parse_next can be called in succession
+bool
+hh_span_parse_next(hh_span_t* span, const char* fmt, void* out);
 
 // reads an entire file given by path
-// returns NULL on read failure
+// returns a dynamic array with file contents (free with hh_darrfree)
+// returns NULL on failure
 char* 
 hh_read_entire_file(const char* path);
 // returns a pointer to the same string that 
@@ -299,6 +309,12 @@ HH_H__impl_darrswap(void* arrp, size_t i, size_t j);
 // helper functions for hh_path
 char*
 HH_H__impl_path_join(char* path, ...);
+
+// size of the span format specifier buffer
+// should not have to modify
+#ifndef HH_SPAN_BUF_LEN
+#define HH_SPAN_BUF_LEN 32
+#endif // not HH_SPAN_BUF_LEN
 
 // NetBSD: getline.c,v 1.2 2014/09/16 17:23:50 christos Exp
 ptrdiff_t // NO PREFIX STRIPPING
@@ -475,7 +491,6 @@ HH_H__impl_path_join(char* path, ...) {
         (void) hh_darrpop(path);
         if (hh_darrlast(path) != '/') hh_darrputstr(path, "/");
         hh_darrputstr(path, sub);
-        (void) hh_darrpop(path);
         if (hh_darrlen(path) > 2 && hh_darrlast(path) == '/') (void) hh_darrpop(path);
     }
     va_end(args);
@@ -564,46 +579,41 @@ hh_edition_supported(enum hh_edition ed) {
 }
 
 bool
-hh_span_next(hh_span_t* span) {
-	span->ptr += span->len;
-	span->len = 0;
-	const char* ptr = span->ptr;
-    while(strchr(" \t\r\n", *ptr) && (*ptr) != '\0') ++ptr;
+hh_span_init(hh_span_t* span, const char* ptr, const char* delim) {
 	span->ptr = ptr;
-    while(strchr(" \t\r\n", *ptr) == NULL && (*ptr) != '\0') ++ptr;
+	span->delim = delim;
+	span->len = 0;
+	span->skips = 0;
+	return hh_span_next(span);
+}
+
+bool
+hh_span_next(hh_span_t* span) {
+	const char* ptr = span->ptr + span->len + span->skips;
+	span->len = 0;
+	span->skips = 0;
+	while(*ptr && strchr(" \t\r\n", *ptr)) ++ptr;
+	span->ptr = ptr;
+	if(!*ptr) return false;
+	size_t delim_len = span->delim ? strlen(span->delim) : 0;
+	if(span->delim) while(*ptr && strncmp(ptr, span->delim, delim_len) != 0 && !strchr(" \t\r\n", *ptr)) ++ptr;
+	else while(*ptr && !strchr(" \t\r\n", *ptr)) ++ptr;
 	span->len = (size_t) (ptr - span->ptr);
-	return (span->len != 0);
-}
-
-bool
-hh_span_double(const hh_span_t span, double* out) {
-	char* endptr = NULL;
-	double temp;
-    temp = strtod(span.ptr, &endptr);
-    if(endptr == NULL) return false;
-    if(endptr != (span.ptr + (ptrdiff_t) span.len)) return false;
-	*out = temp;
+	if(span->len == 0) return false;
+	if(span->delim && strncmp(ptr, span->delim, delim_len) == 0) span->skips = delim_len;
 	return true;
 }
 
 bool
-hh_span_long(const hh_span_t span, long* out) {
-	char* endptr = NULL;
-	long temp;
-    temp = strtol(span.ptr, &endptr, 10);
-    if(endptr == NULL) return false;
-    if(endptr != (span.ptr + (ptrdiff_t) span.len)) return false;
-	*out = temp;
-	return true;
-}
-
-bool
-hh_span_size_t(const hh_span_t span, size_t* out) {
-	long temp;
-	if(!hh_span_long(span, &temp)) return false;
-	if(temp < 0) return false;
-	*out = (size_t) temp;
-	return true;
+hh_span_next_line(hh_span_t* span) {
+	const char* ptr = span->ptr + span->len + span->skips;
+	span->len = 0;
+	span->skips = 0;
+	while(*ptr && *ptr != '\n') ++ptr;
+	if(*ptr == '\n') ++ptr;
+	span->ptr = ptr;
+	if(*ptr == '\0') return false;
+	return hh_span_next(span);
 }
 
 bool
@@ -611,6 +621,19 @@ hh_span_equals(const hh_span_t span, const char* other) {
 	size_t len = strlen(other);
 	if(span.len != len) return false;
 	return strncmp(span.ptr, other, span.len) == 0;
+}
+
+bool
+hh_span_parse(const hh_span_t* span, const char* fmt, void* out) {
+	HH_ASSERT(fmt[0] == '%', "Unsupported format specifier [%s].", fmt);
+	static char fmt_buf[HH_SPAN_BUF_LEN + 1];
+	snprintf(fmt_buf, HH_SPAN_BUF_LEN, "%%%zu%s", span->len, &fmt[1]);
+	return sscanf(span->ptr, fmt_buf, out);
+}
+
+bool
+hh_span_parse_next(hh_span_t* span, const char* fmt, void* out) {
+	return hh_span_parse(span, fmt, out) && hh_span_next(span);
 }
 
 #define HH_CHECK_STREAM(stream, cond, ...) if(!(cond)) { \
@@ -791,10 +814,11 @@ hh_getline(char** buf, size_t* bufsiz, FILE* fp) {
 #define EDITION_17 HH_EDITION_17
 #define EDITION_23 HH_EDITION_23
 #define span_t hh_span_t
+#define span_init hh_span_init
 #define span_next hh_span_next
-#define span_double hh_span_double
-#define span_long hh_span_long
-#define span_size_t hh_span_size_t
+#define span_next_line hh_span_next_line
+#define span_parse hh_span_parse
+#define span_parse_next hh_span_parse_next
 #define span_equals hh_span_equals
 #define read_entire_file hh_read_entire_file
 #define skip_whitespace hh_skip_whitespace
