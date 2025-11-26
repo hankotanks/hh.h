@@ -600,7 +600,11 @@ hh_span_next(hh_span_t* span) {
 	else while(*ptr && !strchr(" \t\r\n", *ptr)) ++ptr;
 	span->len = (size_t) (ptr - span->ptr);
 	if(span->len == 0) return false;
-	if(span->delim && strncmp(ptr, span->delim, delim_len) == 0) span->skips = delim_len;
+	if(span->delim) {
+		while(*ptr && strchr(" \t\r\n", *ptr)) ++ptr;
+		if(strncmp(ptr, span->delim, delim_len) == 0) 
+			span->skips = (size_t) (ptr - span->ptr) + delim_len - span->len;
+	}
 	return true;
 }
 
