@@ -21,11 +21,9 @@
 // #define HH_LOG HH_LOG_MSG
 // log everything
 // #define HH_LOG HH_LOG_DBG
-enum {
-    HH_LOG_ERR = 1 << 0,
-    HH_LOG_MSG = 1 << 1,
-    HH_LOG_DBG = 1 << 2
-};
+#define HH_LOG_ERR 0
+#define HH_LOG_MSG 1
+#define HH_LOG_DBG 2
 
 // all logging functions have the same behavior as printf,
 // HH_ERR logs to stderr instead of stdout
@@ -38,7 +36,7 @@ enum {
 	printf("\n"); \
 } while(0)
 #else
-#define HH_DBG_BLOCK false
+#define HH_DBG_BLOCK if(false)
 #define HH_DBG(...)
 #endif // HH_DBG
 #if HH_LOG >= HH_LOG_MSG

@@ -1,4 +1,2 @@
 .cache/*
-tests
-tests.exe
 compile_commands.json
