@@ -673,7 +673,6 @@ hh_span_init(hh_span_t* span, const char* ptr, const char* delim) {
 
 bool
 hh_span_next(hh_span_t* span) {
-	// TODO: Delimiters are currently optional, hh_span_next must return false if they aren't present
 	const char* ptr = span->ptr + span->len + span->skips;
 	span->len = 0;
 	span->skips = 0;
