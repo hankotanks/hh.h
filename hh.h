@@ -257,6 +257,75 @@ hh_has_prefix(const char* str, const char* prefix);
 // returns truthy when the `str` ens with `suffix`
 bool
 hh_has_suffix(const char* str, const char* suffix);
+
+// templates for custom key hashing and comparator functions
+typedef size_t (*hh_map_hash_f)(const void* key, size_t size_key);
+// hh_map_comp_f's return value follows the same paradigm as memcmp or strcmp
+//  0 indicates equality
+// -1 means key_a is lexographically less than key_b
+//  1 indicates it is greater than
+typedef int (*hh_map_comp_f)(const void* key_query, size_t size_key_query, const void* key_in, size_t size_key_in);
+// signature for freeing both keys and values
+typedef void (*hh_map_free_f)(const void* ptr, size_t size_ptr);
+
+// hashmap data structure with variably-sized key-value pairs
+// on initialization, only the bucket_count must be provided
+// if hash and comp functions are not given, defaults are used
+// standard initialization:
+// hh_map_t* hm = { .bucket_count = 32, 0 };
+// NOTE: all other fields should be 0-initialized
+typedef struct {
+    size_t bucket_count;
+    hh_map_hash_f hash;
+    hh_map_comp_f comp;
+	hh_map_free_f free_key;
+	hh_map_free_f free_val;
+    char** buckets;
+} hh_map_t;
+
+// represents an element returned by hh_map_get
+// changing the data pointer to by `val` is UB
+// unless the length is preserved
+typedef struct {
+    size_t size_key, size_val;
+    const void* key;
+    const void* val;
+} hh_map_entry_t;
+
+// insert a key-value pair into the hashmap
+bool
+hh_map_insert(hh_map_t* map, const void* key, size_t size_key, const void* val, size_t size_val);
+// insert an hh_map_entry_t element
+// useful for copying from one hashmap to another
+bool
+hh_map_insert_entry(hh_map_t* map, const hh_map_entry_t* entry);
+// macro for inserting string keys
+#define hh_map_insert_with_cstr_key(map, key, val, size_val) \
+	hh_map_insert(map, key, strlen(key) + 1, val, size_val)
+// returns the key-value pair associated with a given key
+// if the key does not exist in the map, the entry is 0-initialized
+// NOTE: changing the underlying key & value data is a corrupting action
+// if the length overruns size_key or size_val, respectively
+hh_map_entry_t
+hh_map_get(const hh_map_t* map, const void* key, size_t size_key);
+// macro for querying with string keys
+#define hh_map_get_with_cstr_sky(map, key) \
+	hh_map_get(map, key, strlen(key) + 1, val, size_val);
+// returns the value corresponding to the given key
+// NULL if the key is not a member of the map
+const void*
+hh_map_get_val(const hh_map_t* map, const void* key, size_t size_key);
+// remove entry corresponding to the given key
+// returns truthy if an entry was removed
+bool
+hh_map_remove(hh_map_t* map, const void* key, size_t size_key);
+// iterator macro for hh_map
+// hh_map_it(&map, it) printf("%.*s", (int) it.size_key, it.key);
+#define hh_map_it(map, it) \
+    for(hh_map_entry_t it = HH_H__impl_map_it_begin(map); it.val; HH_H__impl_map_it_next(map, &it))
+// free hh_map_t
+void
+hh_map_free(hh_map_t* map);
 //
 #endif // HH_H__
 
@@ -319,6 +388,11 @@ ptrdiff_t // NO PREFIX STRIPPING
 hh_getdelim(char** buf, size_t* bufsiz, int delimiter, FILE* fp);
 ptrdiff_t // NO PREFIX STRIPPING
 hh_getline(char** buf, size_t* bufsiz, FILE* fp);
+
+hh_map_entry_t
+HH_H__impl_map_it_begin(const hh_map_t* map);
+void
+HH_H__impl_map_it_next(const hh_map_t* map, hh_map_entry_t* entry);
 //
 #endif // HH_H__
 
@@ -401,7 +475,7 @@ HH_H__impl_darrswap(void* arrp, size_t i, size_t j) {
 
 
 char*
-hh_path_alloc_impl(const char* raw) {
+HH_H__impl_path_alloc(const char* raw) {
 	char* path = NULL;
 	hh_darrputstr(path, raw);
 	if(path == NULL) return NULL;
@@ -427,13 +501,13 @@ hh_path_alloc(const char *raw) {
 #else
 	if(raw[0] == '.' && (raw[1] == '/' || raw[1] == '\\' || raw[1] == '\0')) {
 		raw_abs = realpath(".", NULL);
-		path = hh_path_alloc_impl(raw_abs);
+		path = HH_H__impl_path_alloc(raw_abs);
 		hh_darrputstr(path, raw + 1);
 	} else if(raw[0] == '.' && raw[1] == '.' && (raw[2] == '/' || raw[2] == '\\' || raw[2] == '\0')) {
 		raw_abs = realpath("..", NULL);
-		path = hh_path_alloc_impl(raw_abs);
+		path = HH_H__impl_path_alloc(raw_abs);
 		hh_darrputstr(path, raw + 2);
-	} else path = hh_path_alloc_impl(raw);
+	} else path = HH_H__impl_path_alloc(raw);
 #endif
 	if(raw_abs) free(raw_abs);
 	if(path == NULL) return NULL;
@@ -587,22 +661,25 @@ hh_span_init(hh_span_t* span, const char* ptr, const char* delim) {
 
 bool
 hh_span_next(hh_span_t* span) {
+	// TODO: Delimiters are currently optional, hh_span_next must return false if they aren't present
 	const char* ptr = span->ptr + span->len + span->skips;
 	span->len = 0;
 	span->skips = 0;
-	while(*ptr && strchr(" \t\r\n", *ptr)) ++ptr;
+	while(*ptr && strchr(" \t\r", *ptr)) ++ptr;
 	span->ptr = ptr;
 	if(!*ptr) return false;
 	size_t delim_len = span->delim ? strlen(span->delim) : 0;
-	if(span->delim) while(*ptr && strncmp(ptr, span->delim, delim_len) != 0 && !strchr(" \t\r\n", *ptr)) ++ptr;
-	else while(*ptr && !strchr(" \t\r\n", *ptr)) ++ptr;
+	if(span->delim) {
+		while(*ptr && strncmp(ptr, span->delim, delim_len) != 0 && !strchr(" \t\r\n", *ptr)) ++ptr;
+	} else while(*ptr && !strchr(" \t\r\n", *ptr)) ++ptr;
 	span->len = (size_t) (ptr - span->ptr);
 	if(span->len == 0) return false;
 	if(span->delim) {
-		while(*ptr && strchr(" \t\r\n", *ptr)) ++ptr;
-		if(strncmp(ptr, span->delim, delim_len) == 0) 
-			span->skips = (size_t) (ptr - span->ptr) + delim_len - span->len;
+		while(*ptr && strchr(" \t\r", *ptr)) ++ptr;
+		if(strncmp(ptr, span->delim, delim_len) == 0) ptr += delim_len;
 	}
+	while(*ptr && strchr(" \t\r", *ptr)) ++ptr;
+	span->skips = (size_t) (ptr - span->ptr) - span->len;
 	return true;
 }
 
@@ -671,6 +748,7 @@ hh_read_entire_file(const char* path) {
     fclose(f);
     return buf;
 }
+
 #undef HH_CHECK_STREAM
 
 const char*
@@ -761,6 +839,205 @@ ptrdiff_t
 hh_getline(char** buf, size_t* bufsiz, FILE* fp) {
 	return hh_getdelim(buf, bufsiz, '\n', fp);
 }
+
+// adapted from the following link
+// https://gist.github.com/MohamedTaha98/ccdf734f13299efb73ff0b12f7ce429f
+// thanks to MohamedTaha98
+size_t
+HH_H__impl_map_hash_djb2(const void* key, size_t size_key) {
+    size_t hash = 5381;
+    for (size_t i = 0; i < size_key; ++i) hash = ((hash << 5) + hash) + (size_t) ((char*) key)[i];
+    return hash;
+}
+
+size_t
+HH_H__impl_map_hash_generic(const hh_map_t* map, const void* key, size_t size_key) {
+    return ((map->hash == NULL) ? 
+        HH_H__impl_map_hash_djb2(key, size_key) : 
+        (map->hash)(key, size_key)) % map->bucket_count;
+}
+
+int
+HH_H__impl_map_comp_generic(const hh_map_t* map, const void* key_query, size_t size_key_query, const void* key_in, size_t size_key_in) {
+    if(map->comp != NULL) return (map->comp)(key_query, size_key_query, key_in, size_key_in);
+	int result = memcmp(key_query, key_in, HH_MIN(size_key_query, size_key_in));
+	if(result != 0) return result;
+	if(size_key_query < size_key_in) return -1;
+    if(size_key_query > size_key_in) return 1;
+	return 0;
+}
+
+bool 
+HH_H__impl_map_replace(hh_map_t* map, const void* key, size_t size_key, const void* val, size_t size_val) {
+	// get the entry, we can only replace if it exists
+    hh_map_entry_t entry = hh_map_get(map, key, size_key);
+    if(entry.val == NULL) return false;
+	// entry bounds
+    char* entry_begin = (char*) entry.key - sizeof(size_t) * 2;
+    char* entry_val = (char*) entry.val;
+    char* entry_end = entry_val + entry.size_val;
+    size_t idx, len;
+	idx = HH_H__impl_map_hash_generic(map, entry.key, entry.size_key);
+	// grow array if new entry size is larger
+    if(size_val > entry.size_val) {
+        char* bucket = map->buckets[idx];
+        hh_darradd(map->buckets[idx], size_val - entry.size_val);
+        entry_begin = map->buckets[idx] + (entry_begin - bucket);
+        entry_val = map->buckets[idx] + (entry_val - bucket);
+        entry_end = entry_val + entry.size_val;
+    }
+	// compute length of tail bytes that we need to slide right
+	len = (size_t) ((map->buckets[idx] + hh_darrlen(map->buckets[idx])) - entry_end);
+    memmove(entry_val + size_val, entry_end, len);
+	// update metadata and replace value
+    ((size_t*) entry_begin)[0] = size_val;
+    memcpy(entry_val, val, size_val);
+    return true;
+}
+
+bool
+hh_map_insert(hh_map_t* map, const void* key, size_t size_key, const void* val, size_t size_val) {
+    if(map == NULL) return false;
+    // initialize map
+    if(map->buckets == NULL) {
+        map->buckets = calloc(map->bucket_count, sizeof(char*));
+        if(map->buckets == NULL) return false;
+        for(size_t i = 0; i < map->bucket_count; ++i) hh_darradd(map->buckets[i], sizeof(size_t) * 2);
+    } else if(HH_H__impl_map_replace(map, key, size_key, val, size_val)) return true;
+    // perform insertion
+    size_t idx, len;
+    idx = HH_H__impl_map_hash_generic(map, key, size_key);
+    len = hh_darrlen(map->buckets[idx]);
+    hh_darradd(map->buckets[idx], size_key + size_val + sizeof(size_t) * 2);
+	// update entry sizes
+    size_t* meta = (((size_t*) (map->buckets[idx] + len)) - 2);
+    *(meta++) = size_key;
+    *(meta++) = size_val;
+	// copy over entry
+    memcpy(meta, key, size_key);
+    memcpy(((char*) meta) + size_key, val, size_val);
+    return true;
+}
+
+bool
+hh_map_insert_entry(hh_map_t* map, const hh_map_entry_t* entry) {
+    return hh_map_insert(map, entry->key, entry->size_key, entry->val, entry->size_val);
+}
+
+hh_map_entry_t
+hh_map_get(const hh_map_t* map, const void* key, size_t size_key) {
+    if(map == NULL) return (hh_map_entry_t) {0};
+    if(map->buckets == NULL) return (hh_map_entry_t) {0};
+    if(key == NULL) return (hh_map_entry_t) {0};
+    // get correct bucket
+    size_t idx = HH_H__impl_map_hash_generic(map, key, size_key);
+	// step through the bucket
+	hh_map_entry_t entry;
+	for(size_t i = 0; i < hh_darrlen(map->buckets[idx]);) {
+		entry.size_key = *((size_t*) (map->buckets[idx] + i)); i += sizeof(size_t);
+        entry.size_val = *((size_t*) (map->buckets[idx] + i)); i += sizeof(size_t);
+        entry.key = map->buckets[idx] + i; i += entry.size_key;
+        entry.val = map->buckets[idx] + i; i += entry.size_val;
+		// return if key was found
+        if(HH_H__impl_map_comp_generic(map, key, size_key, entry.key, entry.size_key) == 0) 
+            return entry;
+	}
+    return (hh_map_entry_t) {0};
+}
+
+const void*
+hh_map_get_val(const hh_map_t* map, const void* key, size_t size_key) {
+    return hh_map_get(map, key, size_key).val;
+}
+
+bool
+hh_map_remove(hh_map_t* map, const void* key, size_t size_key) {
+	// get corresponding entry
+    hh_map_entry_t entry = hh_map_get(map, key, size_key);
+    if(entry.val == NULL) return false;
+	// recompute bucket
+    size_t idx = HH_H__impl_map_hash_generic(map, key, size_key);
+    char* bucket = map->buckets[idx];
+    size_t len = hh_darrlen(bucket);
+	// entry bounds
+    char* entry_begin = (char*) entry.key - sizeof(size_t) * 2;
+    char* entry_end = (char*) entry.val + entry.size_val;
+	// remaining bytes to slide over the current entry
+    size_t tail = (size_t) ((bucket + len) - entry_end);
+    memmove(entry_begin, entry_end, tail);
+	// update hh_darrheader_t length to reflect changes
+    hh_darrheader(bucket)->len -= (entry.size_key + entry.size_val + sizeof(size_t) * 2);
+    return true;
+}
+
+void
+HH_H__impl_map_it_helper(hh_map_entry_t* entry, const char* entry_begin) {
+    entry->size_key = ((size_t*) entry_begin)[0];
+    entry->size_val = ((size_t*) entry_begin)[1];
+    entry->key = (const void*) (((size_t*) entry_begin) + 2);
+    entry->val = (const char*) entry->key + entry->size_key;
+}
+
+hh_map_entry_t
+HH_H__impl_map_it_begin(const hh_map_t* map) {
+	hh_map_entry_t entry;
+    size_t idx;
+	// scan all buckets until a non-empty one is found
+	for(idx = 0; idx < map->bucket_count; ++idx) {
+		// a non-empty bucket is longer than the terminating 0, 0
+		if(hh_darrlen(map->buckets[idx]) > sizeof(size_t) * 2) {
+			HH_H__impl_map_it_helper(&entry, map->buckets[idx]);
+    		return entry;
+		}
+	}
+	// bucket is empty
+	return (hh_map_entry_t) {0};
+}
+
+void
+HH_H__impl_map_it_next(const hh_map_t* map, hh_map_entry_t* entry) {
+    char* entry_begin;
+    size_t idx;
+    // compute the bucket index of the entry
+    idx = HH_H__impl_map_hash_generic(map, entry->key, entry->size_key);
+    // look for the next entry in the same bucket
+    entry_begin = ((char*) entry->val) + entry->size_val;
+    if(entry_begin + sizeof(size_t) * 2 <= map->buckets[idx] + hh_darrlen(map->buckets[idx])) {
+        size_t size_key = ((size_t*) entry_begin)[0];
+        if(size_key != 0) goto HH_H__impl_map_it_return;
+    }
+    // scan remaining buckets if we didn't find another element in the previous one
+    for(++idx; idx < map->bucket_count; ++idx) {
+        entry_begin = map->buckets[idx];
+        if(hh_darrlen(map->buckets[idx]) > sizeof(size_t) * 2) goto HH_H__impl_map_it_return;
+    }
+    // end of iteration
+    memset(entry, 0, sizeof(hh_map_entry_t));
+    return;
+    // continued iteration
+HH_H__impl_map_it_return:
+    HH_H__impl_map_it_helper(entry, entry_begin);
+    return;
+}
+
+void
+hh_map_free(hh_map_t* map) {
+	hh_map_entry_t entry;
+    for(size_t i = 0; i < map->bucket_count; ++i) {
+		if(map->free_key || map->free_val) {
+			for(size_t j = 0; j < hh_darrlen(map->buckets[i]);) {
+				entry.size_key = *((size_t*) (map->buckets[i] + j)); j += sizeof(size_t);
+				entry.size_val = *((size_t*) (map->buckets[i] + j)); j += sizeof(size_t);
+				entry.key = map->buckets[i] + j; j += entry.size_key;
+				entry.val = map->buckets[i] + j; j += entry.size_val;
+				if(map->free_key) (map->free_key)(entry.key, entry.size_key);
+				if(map->free_val) (map->free_key)(entry.val, entry.size_val);
+			}
+		}
+		hh_darrfree(map->buckets[i]);
+	}
+    free(map->buckets);
+}
 //
 #endif // HH_IMPLEMENTATION
 
@@ -826,6 +1103,16 @@ hh_getline(char** buf, size_t* bufsiz, FILE* fp) {
 #define skip_whitespace hh_skip_whitespace
 #define has_prefix hh_has_prefix
 #define has_suffix hh_has_suffix
+#define map_hash_f hh_map_hash_f
+#define map_comp_f hh_map_comp_f
+#define map_t hh_map_t
+#define map_entry_t hh_map_entry_t
+#define map_insert hh_map_insert
+#define map_insert_entry hh_map_insert_entry
+#define map_get hh_map_get
+#define map_get_val hh_map_get_val
+#define map_remove hh_map_remove
+#define map_free hh_map_free
 //
 #endif // HH_STRIP_PREFIXES
 //
