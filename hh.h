@@ -484,49 +484,35 @@ HH_H__impl_darrswap(void* arrp, size_t i, size_t j) {
 	return true;
 }
 
-
-char*
-HH_H__impl_path_alloc(const char* raw) {
-	char* path = NULL;
-	hh_darrputstr(path, raw);
-	if(path == NULL) return NULL;
-	for(char* curr = path; *curr != '\0'; ++curr) if(*curr == '\\') *curr = '/';
-	return path;
-}
-
-char*
+char* 
 hh_path_alloc(const char *raw) {
-	char* raw_abs = NULL;
-	char* path = NULL;
+    char* raw_abs = NULL;
+    char* path = NULL;
 #ifdef _WIN32
-    DWORD len = GetFullPathNameA(raw, 0, NULL, NULL);
-    if(len == 0) return NULL;
-    raw_abs = malloc(len);
-    if(!raw_abs) return NULL;
-    if(GetFullPathNameA(raw, len, raw_abs, NULL) == 0) {
+    DWORD len_win = GetFullPathNameA(raw, 0, NULL, NULL);
+    if(len_win == 0) return NULL;
+    raw_abs = malloc(len_win);
+    if(raw_abs == NULL) return NULL;
+    if(GetFullPathNameA(raw, len_win, raw_abs, NULL) == 0) {
         free(raw_abs);
         return NULL;
     }
-	path = hh_path_alloc_impl(raw_abs);
-	if(path && path[0] >= 'a' && path[0] <= 'z') path[0] -= ('a' - 'A');
+    if(raw_abs[1] == ':' && raw_abs[0] >= 'a' && raw_abs[0] <= 'z') 
+		raw_abs[0] -= ('a' - 'A');
 #else
-	if(raw[0] == '.' && (raw[1] == '/' || raw[1] == '\\' || raw[1] == '\0')) {
-		raw_abs = realpath(".", NULL);
-		path = HH_H__impl_path_alloc(raw_abs);
-		hh_darrputstr(path, raw + 1);
-	} else if(raw[0] == '.' && raw[1] == '.' && (raw[2] == '/' || raw[2] == '\\' || raw[2] == '\0')) {
-		raw_abs = realpath("..", NULL);
-		path = HH_H__impl_path_alloc(raw_abs);
-		hh_darrputstr(path, raw + 2);
-	} else path = HH_H__impl_path_alloc(raw);
+    raw_abs = realpath(raw, NULL);
+    if(raw_abs == NULL) return NULL;
 #endif
-	if(raw_abs) free(raw_abs);
-	if(path == NULL) return NULL;
-	for(char* curr = path; *curr != '\0'; ++curr) if(*curr == '\\') *curr = '/';
-	(void) hh_darrpop(path);
-	if(hh_darrlen(path) > 2 && hh_darrlast(path) == '/') (void) hh_darrpop(path);
-	hh_darrput(path, '\0');
-	return path;
+    hh_darrputstr(path, raw_abs);
+    free(raw_abs);
+    if(path == NULL) return NULL;
+    for(size_t i = 0; path[i]; i++) if(path[i] == '\\') path[i] = '/';
+    size_t len = hh_darrlen(path);
+    if(len > 2 && path[len - 2] == '/' && path[1] != '\0') {
+        path[len - 2] = '\0';
+        hh_darrheader(path)->len -= 1;
+    }
+    return path;
 }
 
 bool
