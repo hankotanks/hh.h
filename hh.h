@@ -23,37 +23,57 @@
 #define HH_LOG_MSG 1
 #define HH_LOG_DBG 2
 
+#ifndef HH_ERR_STREAM
+#define HH_ERR_STREAM stderr
+#endif // HH_ERR_STREAM
+#ifndef HH_MSG_STREAM
+#define HH_MSG_STREAM stdout
+#endif // HH_MSG_STREAM
+#ifndef HH_DBG_STREAM
+#define HH_DBG_STREAM stdout
+#endif // HH_DBG_STREAM
+
+#if defined(__GNUC__) || defined(__clang__)
+#define HH_ERR_PRINTF(...) fprintf(HH_ERR_STREAM, ##__VA_ARGS__)
+#define HH_MSG_PRINTF(...) fprintf(HH_MSG_STREAM, ##__VA_ARGS__)
+#define HH_DBG_PRINTF(...) fprintf(HH_DBG_STREAM, ##__VA_ARGS__)
+#else
+#define HH_ERR_PRINTF(...) fprintf(HH_ERR_STREAM, __VA_ARGS__)
+#define HH_MSG_PRINTF(...) fprintf(HH_MSG_STREAM, __VA_ARGS__)
+#define HH_DBG_PRINTF(...) fprintf(HH_DBG_STREAM, __VA_ARGS__)
+#endif
+
 // all logging functions have the same behavior as printf,
 // HH_ERR logs to stderr instead of stdout
 #ifdef HH_LOG
 #if HH_LOG >= HH_LOG_DBG
-#define HH_DBG_BLOCK if(printf("DEBUG [%s:%d]: ", __FILE__, __LINE__), 1)
+#define HH_DBG_BLOCK if(HH_DBG_PRINTF("DEBUG [%s:%d]: ", __FILE__, __LINE__), 1)
 #define HH_DBG(...) do { \
-	printf("DEBUG [%s:%d]: ", __FILE__, __LINE__); \
-	printf(__VA_ARGS__); \
-	printf("\n"); \
+	HH_DBG_PRINTF("DEBUG [%s:%d]: ", __FILE__, __LINE__); \
+	HH_DBG_PRINTF(__VA_ARGS__); \
+	HH_DBG_PRINTF("\n"); \
 } while(0)
 #else
 #define HH_DBG_BLOCK if(0)
 #define HH_DBG(...)
 #endif // HH_DBG
 #if HH_LOG >= HH_LOG_MSG
-#define HH_MSG_BLOCK if(printf("INFO [%s:%d]: ", __FILE__, __LINE__), 1)
+#define HH_MSG_BLOCK if(HH_MSG_PRINTF("INFO [%s:%d]: ", __FILE__, __LINE__), 1)
 #define HH_MSG(...) do { \
-    printf("INFO [%s:%d]: ", __FILE__, __LINE__); \
-	printf(__VA_ARGS__); \
-	printf("\n"); \
+    HH_MSG_PRINTF("INFO [%s:%d]: ", __FILE__, __LINE__); \
+	HH_MSG_PRINTF(__VA_ARGS__); \
+	HH_MSG_PRINTF("\n"); \
 } while(0)
 #else
 #define HH_MSG_BLOCK if(0)
 #define HH_MSG(...)
 #endif // HH_MSG
 #if HH_LOG >= HH_LOG_ERR
-#define HH_ERR_BLOCK if(fprintf(stderr, "ERROR [%s:%d]: ", __FILE__, __LINE__), 1)
+#define HH_ERR_BLOCK if(HH_ERR_PRINTF("ERROR [%s:%d]: ", __FILE__, __LINE__), 1)
 #define HH_ERR(...) do { \
-	fprintf(stderr, "ERROR [%s:%d]: ", __FILE__, __LINE__); \
-	fprintf(stderr, __VA_ARGS__); \
-	fprintf(stderr, "\n"); \
+	HH_ERR_PRINTF("ERROR [%s:%d]: ", __FILE__, __LINE__); \
+	HH_ERR_PRINTF(__VA_ARGS__); \
+	HH_ERR_PRINTF("\n"); \
 } while(0)
 #else
 #define HH_ERR_BLOCK if(0)

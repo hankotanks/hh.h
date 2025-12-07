@@ -1,4 +1,4 @@
-CC ?= cc
+CC ?= gcc
 
 SRC_DIR := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
 SRC := $(wildcard $(SRC_DIR)/*.c)
