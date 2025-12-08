@@ -409,12 +409,12 @@ hh_map_free(hh_map_t* map);
 
 #ifdef HH_LOG
 #define HH_H__LOG_BLOCK(stream, name) for(uintptr_t \
-	HH_H__LOG_BLOCK_stream = (uintptr_t) (stream), \
-	HH_H__LOG_BLOCK_toggle = (uintptr_t) (HH_LOG_APPEND("%s [%s:%d]: ", (name), __FILE__, __LINE__) == 0); \
+	HH_H__LOG_BLOCK_stream  = (uintptr_t) (stream), \
+	HH_H__LOG_BLOCK_toggle  = (uintptr_t) (HH_LOG_APPEND("%s [%s:%d]: ", (name), __FILE__, __LINE__) == 0); \
 	HH_H__LOG_BLOCK_toggle != (uintptr_t) '\n' && HH_H__LOG_BLOCK_toggle != (uintptr_t) EOF; \
-	HH_H__LOG_BLOCK_toggle = (uintptr_t) fputc('\n', (FILE*) HH_H__LOG_BLOCK_stream))
+	HH_H__LOG_BLOCK_toggle  = (uintptr_t) fputc('\n', (FILE*) HH_H__LOG_BLOCK_stream))
 #else
-#define HH_H__LOG_BLOCK(stream, name)
+#define HH_H__LOG_BLOCK(stream, name) if(0)
 #endif // HH_LOG
 
 // remove definition of this helper macro
