@@ -8,6 +8,7 @@
 
 #include <stdio.h>
 #include <stddef.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include <stdarg.h>
 #include <string.h>
@@ -33,60 +34,73 @@
 #define HH_DBG_STREAM stdout
 #endif // HH_DBG_STREAM
 
-#if defined(__GNUC__) || defined(__clang__)
-#define HH_ERR_PRINTF(...) fprintf(HH_ERR_STREAM, ##__VA_ARGS__)
-#define HH_MSG_PRINTF(...) fprintf(HH_MSG_STREAM, ##__VA_ARGS__)
-#define HH_DBG_PRINTF(...) fprintf(HH_DBG_STREAM, ##__VA_ARGS__)
-#else
-#define HH_ERR_PRINTF(...) fprintf(HH_ERR_STREAM, __VA_ARGS__)
-#define HH_MSG_PRINTF(...) fprintf(HH_MSG_STREAM, __VA_ARGS__)
-#define HH_DBG_PRINTF(...) fprintf(HH_DBG_STREAM, __VA_ARGS__)
-#endif
-
 // all logging functions have the same behavior as printf,
 // HH_ERR logs to stderr instead of stdout
 #ifdef HH_LOG
 #if HH_LOG >= HH_LOG_DBG
-#define HH_DBG_BLOCK if(HH_DBG_PRINTF("DEBUG [%s:%d]: ", __FILE__, __LINE__), 1)
 #define HH_DBG(...) do { \
-	HH_DBG_PRINTF("DEBUG [%s:%d]: ", __FILE__, __LINE__); \
-	HH_DBG_PRINTF(__VA_ARGS__); \
-	HH_DBG_PRINTF("\n"); \
+	HH_H__DBG_PRINTF("DEBUG [%s:%d]: ", __FILE__, __LINE__); \
+	HH_H__DBG_PRINTF(__VA_ARGS__); \
+	fputc('\n', HH_DBG_STREAM); \
 } while(0)
 #else
-#define HH_DBG_BLOCK if(0)
 #define HH_DBG(...)
 #endif // HH_DBG
 #if HH_LOG >= HH_LOG_MSG
-#define HH_MSG_BLOCK if(HH_MSG_PRINTF("INFO [%s:%d]: ", __FILE__, __LINE__), 1)
 #define HH_MSG(...) do { \
-    HH_MSG_PRINTF("INFO [%s:%d]: ", __FILE__, __LINE__); \
-	HH_MSG_PRINTF(__VA_ARGS__); \
-	HH_MSG_PRINTF("\n"); \
+    HH_H__MSG_PRINTF("INFO [%s:%d]: ", __FILE__, __LINE__); \
+	HH_H__MSG_PRINTF(__VA_ARGS__); \
+	fputc('\n', HH_MSG_STREAM); \
 } while(0)
 #else
-#define HH_MSG_BLOCK if(0)
 #define HH_MSG(...)
 #endif // HH_MSG
 #if HH_LOG >= HH_LOG_ERR
-#define HH_ERR_BLOCK if(HH_ERR_PRINTF("ERROR [%s:%d]: ", __FILE__, __LINE__), 1)
 #define HH_ERR(...) do { \
-	HH_ERR_PRINTF("ERROR [%s:%d]: ", __FILE__, __LINE__); \
-	HH_ERR_PRINTF(__VA_ARGS__); \
-	HH_ERR_PRINTF("\n"); \
+	HH_H__ERR_PRINTF("ERROR [%s:%d]: ", __FILE__, __LINE__); \
+	HH_H__ERR_PRINTF(__VA_ARGS__); \
+	fputc('\n', HH_ERR_STREAM); \
 } while(0)
 #else
-#define HH_ERR_BLOCK if(0)
+#define HH_ERR(...)
+#endif // HH_ERR
+#else
+#define HH_DBG(...)
+#define HH_MSG(...)
 #define HH_ERR(...)
 #endif // HH_LOG
+
+// the block logging functions allow building a log message incrementally,
+// useful for printing arrays, etc.
+// within the block, HH_LOG_APPEND extends the log
+// the log statement produced is automatically newline-terminated 
+#ifdef HH_LOG
+#if HH_LOG >= HH_LOG_DBG
+#define HH_DBG_BLOCK HH_H__LOG_BLOCK(HH_DBG_STREAM, "DEBUG")
+#else
+#define HH_DBG_BLOCK if(0)
+#endif // HH_DBG
+#if HH_LOG >= HH_LOG_MSG
+#define HH_MSG_BLOCK HH_H__LOG_BLOCK(HH_MSG_STREAM, "INFO")
+#else
+#define HH_MSG_BLOCK if(0)
+#endif // HH_MSG
+#if HH_LOG >= HH_LOG_ERR
+#define HH_ERR_BLOCK HH_H__LOG_BLOCK(HH_ERR_STREAM, "ERROR")
+#else
+#define HH_ERR_BLOCK if(0)
+#endif // HH_ERR
+#if defined(__GNUC__) || defined(__clang__)
+#define HH_LOG_APPEND(...) fprintf((FILE*) HH_H__LOG_BLOCK_stream, ##__VA_ARGS__)
+#else
+#define HH_LOG_APPEND(...) fprintf((FILE*) HH_H__LOG_BLOCK_stream, __VA_ARGS__)
+#endif // HH_LOG_APPEND
 #else
 #define HH_DBG_BLOCK if(0)
 #define HH_MSG_BLOCK if(0)
 #define HH_ERR_BLOCK if(0)
-#define HH_DBG(...)
-#define HH_MSG(...)
-#define HH_ERR(...)
-#endif
+#define HH_LOG_APPEND(...)
+#endif // HH_LOG
 
 // min and max
 #define HH_MAX(x, y) (((x) > (y)) ? (x) : (y))
@@ -108,7 +122,6 @@
 #endif
 
 // stringify
-#define HH_STRINGIFY_HELPER(x) #x
 #define HH_STRINGIFY(x) HH_STRINGIFY_HELPER(x)
 // stringify booleans
 // example: printf("flag: %s\n", HH_STRINGIFY_BOOL(flag));
@@ -145,10 +158,6 @@ typedef union {
 // Adapted from...
 // stb_ds.h - v0.67 - public domain data structures - Sean Barrett 2019
 
-#define hh_darrheader(arr)     (((hh_darrheader_t*) arr) - 1)
-#define hh_darrnew(arr)        ((arr) = HH_H__impl_darrnew(HH_ARR_CAP_DEFAULT, sizeof(*arr)))
-#define hh_darrgrow(arr, n)    (HH_H__impl_darrgrow((void**) &(arr), (n), sizeof(*(arr))), (arr))
-// PUBLIC API
 #define hh_darrclear(arr)      ((arr == NULL) ? 0 : (hh_darrheader(arr)->len = 0))
 #define hh_darrfree(arr)       ((void) ((arr) ? free(hh_darrheader(arr)) : (void) 0), (arr) = NULL)
 #define hh_darrlast(arr)       ((arr)[hh_darrheader(arr)->len - 1])
@@ -161,7 +170,9 @@ typedef union {
 // swap fails on empty dynamic arrays
 #define hh_darrswap(arr, i, j) (HH_H__impl_darrswap((arr), (i), (j)))
 #define hh_darrswapdel(arr, i) ((i) < hh_darrlen(arr) ? (HH_H__impl_darrswap((arr), (i), hh_darrlen(arr) - 1), hh_darrpop(arr)) : NULL)
-
+ 
+// append a string to a dynamic array
+// ensures null-termination
 #define hh_darrputstr(arr, str) do { \
 		if(hh_darrlen(arr) == 0 || (hh_darrlen(arr) != 0 && hh_darrlast(arr) != '\0')) hh_darrput(arr, '\0'); \
 		assert(hh_darrlast(arr) == '\0'); \
@@ -379,8 +390,35 @@ hh_map_free(hh_map_t* map);
 //
 
 #ifdef HH_H__
+// helper printf functions used in HH_ERR, HH_MSG, and HH_DBG
+#ifdef HH_LOG
+#if defined(__GNUC__) || defined(__clang__)
+#define HH_H__ERR_PRINTF(...) fprintf(HH_ERR_STREAM, ##__VA_ARGS__)
+#define HH_H__MSG_PRINTF(...) fprintf(HH_MSG_STREAM, ##__VA_ARGS__)
+#define HH_H__DBG_PRINTF(...) fprintf(HH_DBG_STREAM, ##__VA_ARGS__)
+#else
+#define HH_H__ERR_PRINTF(...) fprintf(HH_ERR_STREAM, __VA_ARGS__)
+#define HH_H__MSG_PRINTF(...) fprintf(HH_MSG_STREAM, __VA_ARGS__)
+#define HH_H__DBG_PRINTF(...) fprintf(HH_DBG_STREAM, __VA_ARGS__)
+#endif
+#else
+#define HH_H__ERR_PRINTF(...)
+#define HH_H__MSG_PRINTF(...)
+#define HH_H__DBG_PRINTF(...)
+#endif // HH_LOG
+
+#ifdef HH_LOG
+#define HH_H__LOG_BLOCK(stream, name) for(uintptr_t \
+	HH_H__LOG_BLOCK_stream = (uintptr_t) (stream), \
+	HH_H__LOG_BLOCK_toggle = (uintptr_t) (HH_LOG_APPEND("%s [%s:%d]: ", (name), __FILE__, __LINE__) == 0); \
+	HH_H__LOG_BLOCK_toggle != (uintptr_t) '\n' && HH_H__LOG_BLOCK_toggle != (uintptr_t) EOF; \
+	HH_H__LOG_BLOCK_toggle = (uintptr_t) fputc('\n', (FILE*) HH_H__LOG_BLOCK_stream))
+#else
+#define HH_H__LOG_BLOCK(stream, name)
+#endif // HH_LOG
+
 // remove definition of this helper macro
-#undef HH_STRINGIFY_HELPER
+#define HH_STRINGIFY_HELPER(x) #x
 
 // initial capacity of dynamic array
 #ifndef HH_ARR_CAP_DEFAULT
@@ -391,6 +429,11 @@ hh_map_free(hh_map_t* map);
 typedef struct { 
 	size_t len, cap, elem_size; 
 } hh_darrheader_t;
+
+// helper macros for dynamic array implementation
+#define hh_darrheader(arr)     (((hh_darrheader_t*) arr) - 1)
+#define hh_darrnew(arr)        ((arr) = HH_H__impl_darrnew(HH_ARR_CAP_DEFAULT, sizeof(*arr)))
+#define hh_darrgrow(arr, n)    (HH_H__impl_darrgrow((void**) &(arr), (n), sizeof(*(arr))), (arr))
 
 // helper functions for dynamic array
 void*
@@ -745,7 +788,7 @@ hh_span_parse_next(hh_span_t* span, const char* fmt, void* out) {
 char* 
 hh_read_entire_file(const char* path) {
     FILE* f = fopen(path, "rb");
-	char* buf = NULL;
+	char* f_buf = NULL;
 	if(f == NULL) {
 		HH_ERR("Failed to open file at path [%s].", path);
 		return NULL;
@@ -761,8 +804,8 @@ hh_read_entire_file(const char* path) {
 	}
 	unsigned long size = (unsigned long) size_temp;
     rewind(f);
-	(void) hh_darradd(buf, size);
-	if(buf == NULL) {
+	(void) hh_darradd(f_buf, size);
+	if(f_buf == NULL) {
 		HH_ERR("Failed to allocate buffer for file contents [%s].", path);
 		goto hh_read_entire_file_failure;
 	}
@@ -1086,6 +1129,7 @@ hh_map_free(hh_map_t* map) {
 #define DBG_BLOCK HH_DBG_BLOCK
 #define MSG_BLOCK HH_MSG_BLOCK
 #define ERR_BLOCK HH_ERR_BLOCK
+#define LOG_APPEND HH_LOG_APPEND
 #define STRINGIFY HH_STRINGIFY
 #define STRINGIFY_BOOL HH_STRINGIFY_BOOL
 #define ASSERT_BEFORE HH_ASSERT_BEFORE
