@@ -184,7 +184,7 @@ typedef union {
 // [in const] raw: a cstr representing a raw path
 // return: heap-allocated dynamic array containing the normalized path
 // This function creates a normalized path where...
-// * relative paths are made absolute // TODO: Currently, only initial . and .. are considered
+// * relative paths are made absolute
 // * backslashes "\\" are converted to forward slashes "/"
 // * (WINDOWS ONLY) volume names are capitalized "c:" -> "C:"
 // * final slashes are stripped
@@ -1313,8 +1313,6 @@ HH_H__args_parse_set_err(hh_args_t* args, unsigned int err_type, const struct HH
     args_root->err.err_origin = args;
 }
 
-// TODO: instead of returning a _Bool, return an error code which can be output
-// currently, this function emits no error messages
 _Bool
 hh_args_parse(hh_args_t* args, int argc, char* argv[]) {
     HH_ASSERT(args != NULL, "Passed NULL hh_args_t pointer to hh_args_parse");
