@@ -229,23 +229,26 @@ hh_path_parent(char* path);
 // Frees the path and sets it to NULL
 #define hh_path_free hh_darrfree
 
-// each enumeration represents a major release of the C standard
-// this allows you to check the standard at runtime
-enum hh_edition {
-    HH_EDITION_89 = 0,
-    HH_EDITION_90 = 1,
-    HH_EDITION_94 = 199409,
-    HH_EDITION_99 = 199901,
-    HH_EDITION_11 = 201112,
-    HH_EDITION_17 = 201710,
-    HH_EDITION_23 = 202311
-};
+// each value represents a major release of the C standard
+// this allows you to check the standard at both compile and runtime
+#define HH_EDITION_89 0L
+#define HH_EDITION_90 1L
+#define HH_EDITION_94 199409L
+#define HH_EDITION_99 199901L
+#define HH_EDITION_11 201112L
+#define HH_EDITION_17 201710L
+#define HH_EDITION_23 202311L
+
+typedef long hh_edition_t;
 
 // hh_edition_supported
-// [in] ed: the standard you want to check
+// [in] ed: the standard you want to check (HH_EDITION_89, etc)
 // return: truthy if the standard is supported, false otherwise
 _Bool
-hh_edition_supported(enum hh_edition ed);
+hh_edition_supported(hh_edition_t ed);
+
+// compile time checking, with identical logic to hh_edition_supported above
+#define HH_EDITION_SUPPORTED(ed) (HH_EDITION >= (ed))
 
 // represents a non-owning view into a char buffer
 typedef struct {
@@ -469,6 +472,47 @@ HH_H__impl_darrswap(void* arrp, size_t i, size_t j);
 // helper functions for hh_path
 char*
 HH_H__impl_path_join(char* path, ...);
+
+// calculate edition using preprocessor
+#ifdef __STDC__
+#define HH_EDITION 0L
+#ifdef __STDC_VERSION__
+#ifdef HH_EDITION
+#undef HH_EDITION
+#endif // HH_EDITION
+#define HH_EDITION 1L
+#if(__STDC_VERSION__ >= 199409L)
+#ifdef HH_EDITION
+#undef HH_EDITION
+#endif // HH_EDITION
+#define HH_EDITION 199409L
+#endif // 199409L
+#if(__STDC_VERSION__ >= 199901L)
+#ifdef HH_EDITION
+#undef HH_EDITION
+#endif // HH_EDITION
+#define HH_EDITION 199901L
+#endif // 199901L
+#if(__STDC_VERSION__ >= 201112L)
+#ifdef HH_EDITION
+#undef HH_EDITION
+#endif // HH_EDITION
+#define HH_EDITION 201112L
+#endif // 201112L
+#if(__STDC_VERSION__ >= 201710L)
+#ifdef HH_EDITION
+#undef HH_EDITION
+#endif // HH_EDITION
+#define HH_EDITION 201710L
+#endif // 201710L
+#if(__STDC_VERSION__ >= 202311L)
+#ifdef HH_EDITION
+#undef HH_EDITION
+#endif // HH_EDITION
+#define HH_EDITION 202311L
+#endif // 202311L
+#endif // __STDC_VERSION__
+#endif // __STD__
 
 // size of the span format specifier buffer
 // should not have to modify
@@ -743,50 +787,9 @@ hh_path_parent(char* path) {
     return path;
 }
 
-// calculate edition using preprocessor
-#ifdef __STDC__
-#define HH_EDITION 0L
-#ifdef __STDC_VERSION__
-#ifdef HH_EDITION
-#undef HH_EDITION
-#endif // HH_EDITION
-#define HH_EDITION 1L
-#if(__STDC_VERSION__ >= 199409L)
-#ifdef HH_EDITION
-#undef HH_EDITION
-#endif // HH_EDITION
-#define HH_EDITION 199409L
-#endif // 199409L
-#if(__STDC_VERSION__ >= 199901L)
-#ifdef HH_EDITION
-#undef HH_EDITION
-#endif // HH_EDITION
-#define HH_EDITION 199901L
-#endif // 199901L
-#if(__STDC_VERSION__ >= 201112L)
-#ifdef HH_EDITION
-#undef HH_EDITION
-#endif // HH_EDITION
-#define HH_EDITION 201112L
-#endif // 201112L
-#if(__STDC_VERSION__ >= 201710L)
-#ifdef HH_EDITION
-#undef HH_EDITION
-#endif // HH_EDITION
-#define HH_EDITION 201710L
-#endif // 201710L
-#if(__STDC_VERSION__ >= 202311L)
-#ifdef HH_EDITION
-#undef HH_EDITION
-#endif // HH_EDITION
-#define HH_EDITION 202311L
-#endif // 202311L
-#endif // __STDC_VERSION__
-#endif // __STD__
-
 _Bool
-hh_edition_supported(enum hh_edition ed) {
-    return HH_EDITION >= (long) (ed);
+hh_edition_supported(hh_edition_t ed) {
+    return HH_EDITION >= ed;
 }
 
 _Bool
@@ -1659,7 +1662,6 @@ hh_getline(char** buf, size_t* bufsiz, FILE* fp) {
 #define path_name hh_path_name
 #define path_parent hh_path_parent
 #define path_free hh_path_free
-#define edition_supported hh_edition_supported
 #define EDITION_89 HH_EDITION_89
 #define EDITION_90 HH_EDITION_90
 #define EDITION_94 HH_EDITION_94
@@ -1667,6 +1669,9 @@ hh_getline(char** buf, size_t* bufsiz, FILE* fp) {
 #define EDITION_11 HH_EDITION_11
 #define EDITION_17 HH_EDITION_17
 #define EDITION_23 HH_EDITION_23
+#define edition_t hh_edition_t
+#define edition_supported hh_edition_supported
+#define EDITION_SUPPORTED HH_EDITION_SUPPORTED
 #define span_t hh_span_t
 #define span_init hh_span_init
 #define span_next hh_span_next
