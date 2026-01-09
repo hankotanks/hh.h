@@ -162,13 +162,13 @@ typedef union {
 #define hh_darrlast(arr)       ((arr)[hh_darrheader(arr)->len - 1])
 #define hh_darrput(arr, val)   ((void) hh_darrgrow(arr, 1), (arr)[(hh_darrheader(arr)->len)++] = (val))
 #define hh_darrpop(arr)        ((arr)[--(hh_darrheader(arr)->len)])
-#define hh_darradd(arr, n)     (HH_H__impl_darradd((void**)&(arr), (n), sizeof *(arr)))
+#define hh_darradd(arr, n)     (HH_H__darradd((void**)&(arr), (n), sizeof *(arr)))
 #define hh_darrlen(arr)        ((arr == NULL) ? 0 : hh_darrheader(arr)->len)
 #define hh_darrcap(arr)        ((arr == NULL) ? 0 : hh_darrheader(arr)->cap)
 // returns truthy if swap succeeded
 // swap fails on empty dynamic arrays
-#define hh_darrswap(arr, i, j) (HH_H__impl_darrswap((arr), (i), (j)))
-#define hh_darrswapdel(arr, i) ((i) < hh_darrlen(arr) ? (HH_H__impl_darrswap((arr), (i), hh_darrlen(arr) - 1), hh_darrpop(arr)) : NULL)
+#define hh_darrswap(arr, i, j) (HH_H__darrswap((arr), (i), (j)))
+#define hh_darrswapdel(arr, i) ((i) < hh_darrlen(arr) ? (HH_H__darrswap((arr), (i), hh_darrlen(arr) - 1), hh_darrpop(arr)) : NULL)
  
 // append a string to a dynamic array
 // ensures null-termination
@@ -178,6 +178,19 @@ typedef union {
         size_t _tmp = hh_darradd(arr, strlen(str)) - 1; \
         strcpy((arr) + _tmp, (str)); \
     } while(0)
+
+// type representing a memory arena
+typedef struct HH_H__arena hh_arena;
+
+// allocates memory within an arena
+// assumes 0-initialization
+// any size is valid, even if it is >= HH_ARENA_DEFAULT_SIZE
+void*
+hh_arena_alloc(hh_arena* arena, size_t sz);
+// free the given memory arena
+// does not free(arena), it must be freed separately if it was heap-allocated
+void
+hh_arena_free(hh_arena* arena);
 
 // hh_path_alloc
 // [in const] raw: a cstr representing a raw path
@@ -211,7 +224,7 @@ hh_path_is_root(const char* path);
 // This is structued as a macro to avoid the case where a reallocation
 // causes the input and output pointers to differ.
 // NULL is returned when the provided path is NULL
-#define hh_path_join(path, ...) ((path) = HH_H__impl_path_join((path), __VA_ARGS__, NULL))
+#define hh_path_join(path, ...) ((path) = HH_H__path_join((path), __VA_ARGS__, NULL))
 // hh_path_name
 // [in const] path: a path originally constructed with hh_path_alloc
 // return: a pointer to the first character of the last path element
@@ -350,7 +363,7 @@ _Bool
 hh_map_remove(hh_map_t* map, const void* key, size_t size_key);
 // iterator macro for hh_map
 // hh_map_it(&map, it) printf("%.*s", (int) it.size_key, it.key);
-#define hh_map_it(map, it) for(hh_map_entry_t it = HH_H__impl_map_it_begin(map); it.val; HH_H__impl_map_it_next(map, &it))
+#define hh_map_it(map, it) for(hh_map_entry_t it = HH_H__map_it_begin(map); it.val; HH_H__map_it_next(map, &it))
 // free hh_map_t
 void
 hh_map_free(hh_map_t* map);
@@ -372,9 +385,19 @@ typedef enum {
     HH_ARGS_ULONG // const unsigned long*
 } hh_args_opt_t;
 
-// add an optional value to the argument parser
-const void*
-hh_args_add_opt(hh_args_t* args, char flag, const char* flag_long, hh_args_opt_t type, const char* name, const char* desc);
+// configuration options for hh_args_add_opt
+// all fields are optional,
+// except for flag, flag_long (one of which must be set)
+typedef struct {
+    char flag;
+    const char* flag_long;
+    const char* name;
+    const char* desc;
+    _Bool req;
+} hh_args_opt_cfg;
+
+// add a flag to the argument parser
+#define hh_args_add_opt(args, type, ...) HH_H__args_add_opt((args), (type), (hh_args_opt_cfg) { __VA_ARGS__ })
 // add a new command to the argument parser
 hh_args_t*
 hh_args_add_cmd(hh_args_t* args, const char* name, const char* desc);
@@ -458,22 +481,37 @@ typedef struct {
 
 // helper macros for dynamic array implementation
 #define hh_darrheader(arr)     (((hh_darrheader_t*) arr) - 1)
-#define hh_darrnew(arr)        ((arr) = HH_H__impl_darrnew(HH_ARR_CAP_DEFAULT, sizeof(*arr)))
-#define hh_darrgrow(arr, n)    (HH_H__impl_darrgrow((void**) &(arr), (n), sizeof(*(arr))), (arr))
+#define hh_darrnew(arr)        ((arr) = HH_H__darrnew(HH_ARR_CAP_DEFAULT, sizeof(*arr)))
+#define hh_darrgrow(arr, n)    (HH_H__darrgrow((void**) &(arr), (n), sizeof(*(arr))), (arr))
 
 // helper functions for dynamic array
 void*
-HH_H__impl_darrnew(size_t cap, size_t elem_size);
+HH_H__darrnew(size_t cap, size_t elem_size);
 void 
-HH_H__impl_darrgrow(void** arrp, size_t n, size_t elem_size);
+HH_H__darrgrow(void** arrp, size_t n, size_t elem_size);
 size_t
-HH_H__impl_darradd(void** arrp, size_t n, size_t elem_size);
+HH_H__darradd(void** arrp, size_t n, size_t elem_size);
 _Bool 
-HH_H__impl_darrswap(void* arrp, size_t i, size_t j);
+HH_H__darrswap(void* arrp, size_t i, size_t j);
+
+// arena type
+// placed here because the user should never have to interact with it
+struct HH_H__arena {
+    char* ptr;
+    char* end;
+    char* cur;
+    hh_arena* next; 
+};
+
+// the default size of a 'page' in the allocator
+// can be overwritten by the user
+#ifndef HH_ARENA_DEFAULT_SIZE
+#define HH_ARENA_DEFAULT_SIZE (256 * 1024)
+#endif // HH_ARENA_DEFAULT_SIZE
 
 // helper functions for hh_path
 char*
-HH_H__impl_path_join(char* path, ...);
+HH_H__path_join(char* path, ...);
 
 // calculate edition using preprocessor
 #ifdef __STDC__
@@ -529,28 +567,29 @@ ptrdiff_t // NO PREFIX STRIPPING
 hh_getline(char** buf, size_t* bufsiz, FILE* fp);
 
 hh_map_entry_t
-HH_H__impl_map_it_begin(const hh_map_t* map);
+HH_H__map_it_begin(const hh_map_t* map);
 void
-HH_H__impl_map_it_next(const hh_map_t* map, hh_map_entry_t* entry);
+HH_H__map_it_next(const hh_map_t* map, hh_map_entry_t* entry);
 
 // in practice, this value does not need to be modified
 #ifndef HH_ARGS_BUCKET_COUNT
 #define HH_ARGS_BUCKET_COUNT 10
 #endif // HH_ARGS_BUCKET_COUNT
 
-// indicates the maximum number of arguments
-// if the corresponding assert is thrown, increase the cap
-// TODO: remove maximum capacity while maintaining validity of hh_args_add_opt return values
-#ifndef HH_ARGS_MAX
-#define HH_ARGS_MAX 40
-#endif // HH_ARGS_MAX
-
+// TODO: Below is the bucket list for hh_args_t, ordered by precedence
+// * [--help, -h] to print context-specific help menus
+// DONE: * required arguments
+// DONE: ** error handling when missing required args
+// * repeated arguments
+// DONE: * error when passing flags that belong to different commands
 struct HH_H__args_entry_t {
     const char* name;
     const char* desc;
     char flag;
     const char* flag_long;
     hh_args_opt_t type;
+    _Bool set;
+    _Bool req;
     union {
         _Bool bool_;
         char* cstr_;
@@ -558,7 +597,6 @@ struct HH_H__args_entry_t {
         long long_;
         unsigned long ulong_;
     }* val;
-    _Bool set;
 };
 
 struct HH_H__args_t {
@@ -566,10 +604,10 @@ struct HH_H__args_t {
     const char* desc;
     struct HH_H__args_t* commands;
     struct HH_H__args_t* command_parent;
-    size_t count;
     hh_map_t flags; // <char, size_t>
     hh_map_t flags_long; // <char*, size_t>
-    struct HH_H__args_entry_t entries[HH_ARGS_MAX]; // NOTE: this is (unfortunately) fixed-size so that hh_args_add_opt always returns a valid pointer
+    uintptr_t* entry_list; // NOTE: this is a darr containing pointers to arena-allocated entries to ensure pointer stability
+    hh_arena entries;
     struct {
         enum {
             HH_H__ARGS_ERR_NONE = 0,
@@ -577,13 +615,18 @@ struct HH_H__args_t {
             HH_H__ARGS_ERR_COMMAND_INVALID,
             HH_H__ARGS_ERR_OPTION_MISSING_VALUE,
             HH_H__ARGS_ERR_OPTION_INVALID,
-            HH_H__ARGS_ERR_OPTION_DUPLICATE
+            HH_H__ARGS_ERR_OPTION_DUPLICATE,
+            HH_H__ARGS_ERR_OPTION_REQUIRED,
+            HH_H__ARGS_ERR_OPTION_MISMATCH
         } type;
         const struct HH_H__args_entry_t* entry;
         const char* extra;
         const struct HH_H__args_t* origin;
     } err;
 };
+
+const void*
+HH_H__args_add_opt(hh_args_t* args, hh_args_opt_t type, hh_args_opt_cfg cfg);
 //
 #endif // HH_H__
 
@@ -618,7 +661,7 @@ hh_calloc_checked(size_t num, size_t size) {
 }
 
 void*
-HH_H__impl_darrnew(size_t cap, size_t elem_size) {
+HH_H__darrnew(size_t cap, size_t elem_size) {
     void* arr = (((hh_darrheader_t*) calloc(1, sizeof(hh_darrheader_t) + elem_size * cap)) + 1);
     hh_darrheader(arr)->len = 0;
     hh_darrheader(arr)->cap = cap;
@@ -627,7 +670,7 @@ HH_H__impl_darrnew(size_t cap, size_t elem_size) {
 }
 
 void 
-HH_H__impl_darrgrow(void** arrp, size_t n, size_t elem_size) {
+HH_H__darrgrow(void** arrp, size_t n, size_t elem_size) {
     if(*arrp == NULL) {
         hh_darrheader_t* hdr = calloc(1, sizeof(hh_darrheader_t) + elem_size * HH_MAX(n, HH_ARR_CAP_DEFAULT));
         assert(hdr != NULL);
@@ -647,8 +690,8 @@ HH_H__impl_darrgrow(void** arrp, size_t n, size_t elem_size) {
 }
 
 size_t
-HH_H__impl_darradd(void** arrp, size_t n, size_t elem_size) {
-    HH_H__impl_darrgrow(arrp, n, elem_size);
+HH_H__darradd(void** arrp, size_t n, size_t elem_size) {
+    HH_H__darrgrow(arrp, n, elem_size);
     size_t len = hh_darrlen(*arrp);
     if(n) {
         memset((char*) (*arrp) + len * elem_size, 0, elem_size * n);
@@ -658,7 +701,7 @@ HH_H__impl_darradd(void** arrp, size_t n, size_t elem_size) {
 }
 
 _Bool 
-HH_H__impl_darrswap(void* arrp, size_t i, size_t j) {
+HH_H__darrswap(void* arrp, size_t i, size_t j) {
     if(i == j) return 1;
     if(arrp == NULL) return 0;
     size_t elem_size = hh_darrheader(arrp)->elem_size;
@@ -667,6 +710,40 @@ HH_H__impl_darrswap(void* arrp, size_t i, size_t j) {
     memcpy(((char*) arrp) + i * elem_size, ((char*) arrp) + j * elem_size, elem_size);
     memcpy(((char*) arrp) + j * elem_size, tmp, elem_size);
     return 1;
+}
+
+void*
+hh_arena_alloc(hh_arena* arena, size_t sz) {
+    // if this is the first allocation
+    if(arena->ptr == NULL) {
+        size_t sz_alloc = HH_MAX(HH_ARENA_DEFAULT_SIZE, sz);
+        arena->ptr = malloc(sz_alloc);
+        if(arena->ptr == NULL) return NULL;
+        arena->end = arena->ptr + sz_alloc;
+        arena->cur = arena->ptr + sz;
+        return arena->ptr;
+    }
+    // if the requested allocation size is too small to fit in the current segment
+    if((size_t) (arena->end - arena->cur) < sz) {
+        if(arena->next == NULL) arena->next = calloc(1, sizeof(hh_arena));
+        if(arena->next == NULL) return NULL;
+        return hh_arena_alloc(arena->next, sz);
+    }
+    // otherwise, fill in the space in this segment
+    void* ptr = arena->cur;
+    arena->cur += sz;
+    return ptr;
+}
+
+void
+hh_arena_free(hh_arena* arena) {
+    if(arena == NULL) return;
+    if(arena->next != NULL) {
+        hh_arena_free(arena->next);
+        free(arena->next);
+    }
+    free(arena->ptr);
+    memset(arena, 0, sizeof(hh_arena));
 }
 
 char* 
@@ -741,7 +818,7 @@ hh_path_is_root(const char* path) {
 }
 
 char* 
-HH_H__impl_path_join(char* path, ...) {
+HH_H__path_join(char* path, ...) {
     if(path == NULL) return NULL;
     va_list args;
     va_start(args, path);
@@ -819,11 +896,11 @@ hh_span_next(hh_span_t* span) {
     span->len = (size_t) (ptr - span->ptr);
     if(span->len == 0 && span->delim == NULL) return 0;
     while(*ptr && strchr(" \t\r", *ptr)) ++ptr;
-    if(*ptr == '\0') goto hh_span_next_skips;
+    if(*ptr == '\0') goto finish;
     // either at the delim or a newline
     if(*ptr == '\n') {
         ++ptr;
-        goto hh_span_next_skips;
+        goto finish;
     }
     // we are 100% pointing at a delim if there is one
     if(span->delim) {
@@ -831,7 +908,7 @@ hh_span_next(hh_span_t* span) {
         ptr += delim_len;
         while(*ptr && strchr(" \t\r\n", *ptr)) ++ptr;
     }
-hh_span_next_skips:
+finish:
     span->skips = (size_t) (ptr - span->ptr) - span->len;
     return 1;
 }
@@ -872,21 +949,21 @@ hh_span_parse_next(hh_span_t* span, const char* fmt, void* out) {
 // https://gist.github.com/MohamedTaha98/ccdf734f13299efb73ff0b12f7ce429f
 // thanks to MohamedTaha98
 size_t
-HH_H__impl_map_hash_djb2(const void* key, size_t size_key) {
+HH_H__map_hash_djb2(const void* key, size_t size_key) {
     size_t hash = 5381;
     for (size_t i = 0; i < size_key; ++i) hash = ((hash << 5) + hash) + (size_t) ((char*) key)[i];
     return hash;
 }
 
 size_t
-HH_H__impl_map_hash_generic(const hh_map_t* map, const void* key, size_t size_key) {
+HH_H__map_hash_generic(const hh_map_t* map, const void* key, size_t size_key) {
     return ((map->hash == NULL) ? 
-        HH_H__impl_map_hash_djb2(key, size_key) : 
+        HH_H__map_hash_djb2(key, size_key) : 
         (map->hash)(key, size_key)) % map->bucket_count;
 }
 
 int
-HH_H__impl_map_comp_generic(const hh_map_t* map, const void* key_query, size_t size_key_query, const void* key_in, size_t size_key_in) {
+HH_H__map_comp_generic(const hh_map_t* map, const void* key_query, size_t size_key_query, const void* key_in, size_t size_key_in) {
     if(map->comp != NULL) return (map->comp)(key_query, size_key_query, key_in, size_key_in);
     int result = memcmp(key_query, key_in, HH_MIN(size_key_query, size_key_in));
     if(result != 0) return result;
@@ -896,7 +973,7 @@ HH_H__impl_map_comp_generic(const hh_map_t* map, const void* key_query, size_t s
 }
 
 _Bool 
-HH_H__impl_map_replace(hh_map_t* map, const void* key, size_t size_key, const void* val, size_t size_val) {
+HH_H__map_replace(hh_map_t* map, const void* key, size_t size_key, const void* val, size_t size_val) {
     // get the entry, we can only replace if it exists
     hh_map_entry_t entry = hh_map_get(map, key, size_key);
     if(entry.val == NULL) return 0;
@@ -905,7 +982,7 @@ HH_H__impl_map_replace(hh_map_t* map, const void* key, size_t size_key, const vo
     char* entry_val = (char*) entry.val;
     char* entry_end = entry_val + entry.size_val;
     size_t idx, len;
-    idx = HH_H__impl_map_hash_generic(map, entry.key, entry.size_key);
+    idx = HH_H__map_hash_generic(map, entry.key, entry.size_key);
     // grow array if new entry size is larger
     if(size_val > entry.size_val) {
         char* bucket = map->buckets[idx];
@@ -932,10 +1009,10 @@ hh_map_insert(hh_map_t* map, const void* key, size_t size_key, const void* val, 
         map->buckets = calloc(map->bucket_count, sizeof(char*));
         if(map->buckets == NULL) return 0;
         for(size_t i = 0; i < map->bucket_count; ++i) hh_darradd(map->buckets[i], sizeof(size_t) * 2);
-    } else if(HH_H__impl_map_replace(map, key, size_key, val, size_val)) return 1;
+    } else if(HH_H__map_replace(map, key, size_key, val, size_val)) return 1;
     // perform insertion
     size_t idx, len;
-    idx = HH_H__impl_map_hash_generic(map, key, size_key);
+    idx = HH_H__map_hash_generic(map, key, size_key);
     len = hh_darrlen(map->buckets[idx]);
     hh_darradd(map->buckets[idx], size_key + size_val + sizeof(size_t) * 2);
     // update entry sizes
@@ -961,7 +1038,7 @@ hh_map_get(const hh_map_t* map, const void* key, size_t size_key) {
     if(map->buckets == NULL) return (hh_map_entry_t) {0};
     if(key == NULL) return (hh_map_entry_t) {0};
     // get correct bucket
-    size_t idx = HH_H__impl_map_hash_generic(map, key, size_key);
+    size_t idx = HH_H__map_hash_generic(map, key, size_key);
     // step through the bucket
     hh_map_entry_t entry;
     for(size_t i = 0; i < hh_darrlen(map->buckets[idx]);) {
@@ -970,7 +1047,7 @@ hh_map_get(const hh_map_t* map, const void* key, size_t size_key) {
         entry.key = map->buckets[idx] + i; i += entry.size_key;
         entry.val = map->buckets[idx] + i; i += entry.size_val;
         // return if key was found
-        if(HH_H__impl_map_comp_generic(map, key, size_key, entry.key, entry.size_key) == 0) 
+        if(HH_H__map_comp_generic(map, key, size_key, entry.key, entry.size_key) == 0) 
             return entry;
     }
     return (hh_map_entry_t) {0};
@@ -987,7 +1064,7 @@ hh_map_remove(hh_map_t* map, const void* key, size_t size_key) {
     hh_map_entry_t entry = hh_map_get(map, key, size_key);
     if(entry.val == NULL) return 0;
     // recompute bucket
-    size_t idx = HH_H__impl_map_hash_generic(map, key, size_key);
+    size_t idx = HH_H__map_hash_generic(map, key, size_key);
     char* bucket = map->buckets[idx];
     size_t len = hh_darrlen(bucket);
     // entry bounds
@@ -1002,7 +1079,7 @@ hh_map_remove(hh_map_t* map, const void* key, size_t size_key) {
 }
 
 void
-HH_H__impl_map_it_helper(hh_map_entry_t* entry, const char* entry_begin) {
+HH_H__map_it_helper(hh_map_entry_t* entry, const char* entry_begin) {
     entry->size_key = ((size_t*) entry_begin)[0];
     entry->size_val = ((size_t*) entry_begin)[1];
     entry->key = (const void*) (((size_t*) entry_begin) + 2);
@@ -1010,14 +1087,14 @@ HH_H__impl_map_it_helper(hh_map_entry_t* entry, const char* entry_begin) {
 }
 
 hh_map_entry_t
-HH_H__impl_map_it_begin(const hh_map_t* map) {
+HH_H__map_it_begin(const hh_map_t* map) {
     hh_map_entry_t entry;
     size_t idx;
     // scan all buckets until a non-empty one is found
     for(idx = 0; idx < map->bucket_count; ++idx) {
         // a non-empty bucket is longer than the terminating 0, 0
         if(hh_darrlen(map->buckets[idx]) > sizeof(size_t) * 2) {
-            HH_H__impl_map_it_helper(&entry, map->buckets[idx]);
+            HH_H__map_it_helper(&entry, map->buckets[idx]);
             return entry;
         }
     }
@@ -1026,28 +1103,28 @@ HH_H__impl_map_it_begin(const hh_map_t* map) {
 }
 
 void
-HH_H__impl_map_it_next(const hh_map_t* map, hh_map_entry_t* entry) {
+HH_H__map_it_next(const hh_map_t* map, hh_map_entry_t* entry) {
     char* entry_begin;
     size_t idx;
     // compute the bucket index of the entry
-    idx = HH_H__impl_map_hash_generic(map, entry->key, entry->size_key);
+    idx = HH_H__map_hash_generic(map, entry->key, entry->size_key);
     // look for the next entry in the same bucket
     entry_begin = ((char*) entry->val) + entry->size_val;
     if(entry_begin + sizeof(size_t) * 2 <= map->buckets[idx] + hh_darrlen(map->buckets[idx])) {
         size_t size_key = ((size_t*) entry_begin)[0];
-        if(size_key != 0) goto HH_H__impl_map_it_return;
+        if(size_key != 0) goto found;
     }
     // scan remaining buckets if we didn't find another element in the previous one
     for(++idx; idx < map->bucket_count; ++idx) {
         entry_begin = map->buckets[idx];
-        if(hh_darrlen(map->buckets[idx]) > sizeof(size_t) * 2) goto HH_H__impl_map_it_return;
+        if(hh_darrlen(map->buckets[idx]) > sizeof(size_t) * 2) goto found;
     }
     // end of iteration
     memset(entry, 0, sizeof(hh_map_entry_t));
     return;
     // continued iteration
-HH_H__impl_map_it_return:
-    HH_H__impl_map_it_helper(entry, entry_begin);
+found:
+    HH_H__map_it_helper(entry, entry_begin);
     return;
 }
 
@@ -1080,37 +1157,46 @@ HH_H__args_add_opt_already_exists(hh_args_t* args, char flag, const char* flag_l
 }
 
 const void*
-hh_args_add_opt(hh_args_t* args, char flag, const char* flag_long, hh_args_opt_t type, const char* name, const char* desc) {
+HH_H__args_add_opt(hh_args_t* args, hh_args_opt_t type, hh_args_opt_cfg cfg) {
     HH_ASSERT(args != NULL, "hh_args_t was NULL");
-    if(args->count == 0) {
+    size_t count = hh_darrlen(args->entry_list);
+    if(count == 0) {
         // initialize hh_args_t
         args->flags.bucket_count = HH_ARGS_BUCKET_COUNT;
         args->flags_long.bucket_count = HH_ARGS_BUCKET_COUNT;
     }
-    HH_ASSERT(flag != '\0' || flag_long, "Invalid hh_args_t configuration. Either 'flag' or 'flag_name' must be set");
+    HH_ASSERT(cfg.flag != '\0' || cfg.flag_long, "Invalid hh_args_t configuration. Either 'flag' or 'flag_long' must be set");
     hh_args_t* args_root = args;
     while(args_root->command_parent) args_root = args_root->command_parent;
-    HH_ASSERT(!HH_H__args_add_opt_already_exists(args_root, flag, flag_long), 
-        "Invalid hh_args_t configuration. Options already exists: '%.*s'", 
-        (flag == '\0') ? (int) strlen(flag_long) : 1, 
-        (flag == '\0') ? flag_long : &flag);
-    HH_ASSERT(args->count < HH_ARGS_MAX, "Invalid hh_args_t configuration. Added more than HH_ARGS_MAX options");
+    HH_ASSERT(!HH_H__args_add_opt_already_exists(args_root, cfg.flag, cfg.flag_long), 
+        "Invalid hh_args_t configuration. Option already exists: [%s%.*s]", 
+        (cfg.flag == '\0') ? "--" : "-",
+        (cfg.flag == '\0') ? (int) strlen(cfg.flag_long) : 1, 
+        (cfg.flag == '\0') ? cfg.flag_long : &cfg.flag);
     _Bool result;
-    if(flag != '\0') {
-        result = hh_map_insert(&args->flags, &flag, 1, &args->count, sizeof(size_t));
-        HH_ASSERT(result, "Invalid hh_args_t configuration. Failed to add flag: '%c'", flag);
+    if(cfg.flag != '\0') {
+        result = hh_map_insert(&args->flags, &cfg.flag, 1, &count, sizeof(size_t));
+        HH_ASSERT(result, "Invalid hh_args_t configuration. Failed to add flag: [-%c]", cfg.flag);
     }
-    if(flag_long != NULL) {
-        result = hh_map_insert_with_cstr_key(&args->flags_long, flag_long, &args->count, sizeof(size_t));
-        HH_ASSERT(result, "Invalid hh_args_t configuration. Failed to add flag: %s", flag_long);
+    if(cfg.flag_long != NULL) {
+        result = hh_map_insert_with_cstr_key(&args->flags_long, cfg.flag_long, &count, sizeof(size_t));
+        HH_ASSERT(result, "Invalid hh_args_t configuration. Failed to add flag: [--%s]", cfg.flag_long);
     }
-    struct HH_H__args_entry_t* entry = &args->entries[args->count++];
-    entry->flag = flag;
-    entry->flag_long = flag_long;
-    entry->desc = desc;
+    struct HH_H__args_entry_t* entry = hh_arena_alloc(&args->entries, sizeof(struct HH_H__args_entry_t));
+    // ensure entry was properly allocated
+    // TODO: refactor this into a single assert
+    if(cfg.flag != '\0' && cfg.flag_long == NULL) HH_ASSERT(entry != NULL, "Invalid hh_args_t configuration. Failed to add flag: [-%c]", cfg.flag);
+    else if(cfg.flag == '\0' && cfg.flag_long != NULL) HH_ASSERT(entry != NULL, "Invalid hh_args_t configuration. Failed to add flag: [--%s]", cfg.flag_long);
+    else HH_ASSERT(entry != NULL, "Invalid hh_args_t configuration. Failed to add flag: [-%c, --%s]", cfg.flag, cfg.flag_long);
+    // fill entry fields
+    entry->name = cfg.name;
+    entry->desc = cfg.desc;
+    entry->flag = cfg.flag;
+    entry->flag_long = cfg.flag_long;
     entry->type = type;
+    entry->req = cfg.req;
     entry->val = hh_calloc_checked(1, sizeof(entry->val[0]));
-    entry->name = name;
+    hh_darrput(args->entry_list, (uintptr_t) entry);
     return entry->val;
 }
 
@@ -1143,7 +1229,7 @@ HH_H__args_parse_helper(hh_args_t* args, char* argv, struct HH_H__args_entry_t**
         val = hh_map_get_val(&args->flags, argv + 1, 1);
     } else return 0;
     if(val == NULL) return 0;
-    if(entry != NULL) *entry = &args->entries[((size_t*) val)[0]];
+    if(entry != NULL) *entry = (struct HH_H__args_entry_t*) args->entry_list[((size_t*) val)[0]];
     // check if the value is part of this argument
     if(split != NULL && ptr != NULL) ptr[0] = split + 1;
     return 1;
@@ -1151,22 +1237,24 @@ HH_H__args_parse_helper(hh_args_t* args, char* argv, struct HH_H__args_entry_t**
 
 const struct HH_H__args_entry_t*
 HH_H__args_parse_opt_exists(const hh_args_t* args, char* argv) {
-    const struct HH_H__args_entry_t* ret;
-    for(size_t i = 0; i < hh_darrlen(args->commands); ++i) {
-        ret = HH_H__args_parse_opt_exists(&args->commands[i], argv);
-        if(ret) return ret;
-    }
+    HH_ASSERT_UNREACHABLE(argv != NULL);
     size_t len = strlen(argv);
-    const void* val;
+    const void* ptr = NULL;
     if(len > 2 && hh_has_prefix(argv, "--")) {
         char* split = NULL;
-        val = (split = strchr(argv, '=')) ?
+        ptr = (split = strchr(argv, '=')) ?
             hh_map_get_val(&args->flags_long, argv + 2, (size_t) (split - argv - 2)) :
             hh_map_get_val_with_cstr_key(&args->flags_long, argv + 2);
     } else if(len > 1 && argv[0] == '-') {
-        val = hh_map_get_val(&args->flags, argv + 1, 1);
-    } else return NULL;
-    return val;
+        ptr = hh_map_get_val(&args->flags, argv + 1, 1);
+    };
+    if(ptr != NULL) return (struct HH_H__args_entry_t*) args->entry_list[((size_t*) ptr)[0]];
+    const struct HH_H__args_entry_t* entry;
+    for(size_t i = 0; i < hh_darrlen(args->commands); ++i) {
+        entry = HH_H__args_parse_opt_exists(&args->commands[i], argv);
+        if(entry) return entry;
+    }
+    return NULL;
 }
 
 void
@@ -1180,7 +1268,7 @@ HH_H__args_parse_set_error(hh_args_t* args, unsigned int type, const struct HH_H
 }
 
 _Bool
-hh_args_parse(hh_args_t* args, int argc, char* argv[]) {
+HH_H__args_parse(hh_args_t* args, int argc, char* argv[]) {
     HH_ASSERT(args != NULL, "Passed NULL hh_args_t pointer to hh_args_parse");
     if(argc <= 1 || argv == NULL || argv[0] == NULL) {
         if(hh_darrlen(args->commands) != 0) {
@@ -1191,7 +1279,7 @@ hh_args_parse(hh_args_t* args, int argc, char* argv[]) {
     _Bool found = (hh_darrlen(args->commands) == 0);
     for(size_t i = 0; i < hh_darrlen(args->commands); ++i) {
         if(strcmp(argv[1], args->commands[i].name) == 0) {
-            if(!hh_args_parse(&args->commands[i], argc - 1, argv + 1)) return 0;
+            if(!HH_H__args_parse(&args->commands[i], argc - 1, argv + 1)) return 0;
             found = 1;
             break;
         }
@@ -1277,6 +1365,29 @@ hh_args_parse(hh_args_t* args, int argc, char* argv[]) {
         }
         entry->set = 1;
     }
+    for(size_t i = 0, j = hh_darrlen(args->entry_list); i < j; ++i) {
+        entry = (struct HH_H__args_entry_t*) args->entry_list[i];
+        if(entry->req && !(entry->set)) {
+            HH_H__args_parse_set_error(args, HH_H__ARGS_ERR_OPTION_REQUIRED, entry, NULL);
+            return 0;
+        }
+    }
+    return 1;
+}
+
+_Bool
+hh_args_parse(hh_args_t* args, int argc, char* argv[]) {
+    if(!HH_H__args_parse(args, argc, argv)) return 0;
+    // ensure no flags corresponding to unused commands are passed
+    const struct HH_H__args_entry_t* entry;
+    for(int i = 1; i < argc; ++i) {
+        entry = HH_H__args_parse_opt_exists(args, argv[i]);
+        if(entry == NULL) continue;
+        if(!(entry->set)) {
+            HH_H__args_parse_set_error(args, HH_H__ARGS_ERR_OPTION_MISMATCH, entry, NULL);
+            return 0;
+        }
+    }
     return 1;
 }
 
@@ -1341,6 +1452,27 @@ hh_args_print_error(const hh_args_t* args, FILE* stream) {
         default: HH_UNREACHABLE;
         }
         break;
+    case HH_H__ARGS_ERR_OPTION_REQUIRED:
+        fprintf(stream, "Missing required flag");
+        if(args->err.origin->command_parent != NULL) {
+            fprintf(stream, " for '%s' ", args->err.origin->name);
+            if(args->err.origin->command_parent->command_parent == NULL) fprintf(stream, "command");
+            else fprintf(stream, "subcommand");
+        }
+        fprintf(stream, ": ");
+        if(args->err.entry->flag != '\0') {
+            if(args->err.entry->flag_long != NULL) fprintf(stream, "[-%c, --%s]", args->err.entry->flag, args->err.entry->flag_long);
+            else fprintf(stream, "[-%c]", args->err.entry->flag);
+        } else fprintf(stream, "[--%s]", args->err.entry->flag_long);
+        break;
+    case HH_H__ARGS_ERR_OPTION_MISMATCH:
+        HH_ASSERT_UNREACHABLE(args->err.origin->command_parent == NULL);
+        fprintf(stream, "Flag not supported by provided command(s): ");
+        if(args->err.entry->flag != '\0') {
+            if(args->err.entry->flag_long != NULL) fprintf(stream, "[-%c, --%s]", args->err.entry->flag, args->err.entry->flag_long);
+            else fprintf(stream, "[-%c]", args->err.entry->flag);
+        } else fprintf(stream, "[--%s]", args->err.entry->flag_long);
+        break;
     default: HH_UNREACHABLE;
     }
     fputc('\n', stream);
@@ -1350,21 +1482,24 @@ void
 hh_args_free(hh_args_t* args) {
     hh_map_free(&args->flags);
     hh_map_free(&args->flags_long);
-    size_t i;
-    for(i = 0; i < args->count; ++i) {
-        switch(args->entries[i].type) {
+    struct HH_H__args_entry_t* entry;
+    size_t i, j;
+    for(i = 0, j = hh_darrlen(args->entry_list); i < j; ++i) {
+        entry = (struct HH_H__args_entry_t*) args->entry_list[i];
+        switch(entry->type) {
         case HH_ARGS_BOOL:
         case HH_ARGS_CSTR: continue;
-        case HH_ARGS_PATH: hh_darrfree(args->entries[i].val->cstr_); continue;
+        case HH_ARGS_PATH: hh_darrfree(entry->val->cstr_); continue;
         case HH_ARGS_DBL:
         case HH_ARGS_LONG:
         case HH_ARGS_ULONG: continue;
         default: HH_UNREACHABLE;
         }
-        free(args->entries[i].val);
+        free(entry->val);
     }
-    for(i = 0; i < hh_darrlen(args->commands); ++i) 
-        hh_args_free(&args->commands[i]);
+    hh_darrfree(args->entry_list);
+    hh_arena_free(&args->entries);
+    for(i = 0; i < hh_darrlen(args->commands); ++i) hh_args_free(&args->commands[i]);
     hh_darrfree(args->commands);
 }
 
@@ -1386,7 +1521,7 @@ HH_H__args_print_usage_helper(const struct HH_H__args_entry_t* entry, FILE* stre
     case HH_ARGS_BOOL:
         HH_H__args_print_usage_printf("] "); else ++(*measure);
         if(align > 0) --align;
-        goto HH_H__args_print_usage_helper_finish;
+        goto finish;
     case HH_ARGS_CSTR:  name = entry->name ? entry->name : "cstr"  ; break;
     case HH_ARGS_PATH:  name = entry->name ? entry->name : "path"  ; break;
     case HH_ARGS_DBL:   name = entry->name ? entry->name : "double"; break;
@@ -1397,7 +1532,7 @@ HH_H__args_print_usage_helper(const struct HH_H__args_entry_t* entry, FILE* stre
     size_t len_opt_name = strlen(name);
     HH_H__args_print_usage_printf(" <%s>] ", name); else (*measure) += len_opt_name + 4;
     if(align > 0) align -= len_opt_name + 4;
-HH_H__args_print_usage_helper_finish:
+finish:
     if(align > 0 && entry->desc) HH_H__args_print_usage_printf("%*s%s", (int) align, "", entry->desc);
 }
 
@@ -1423,8 +1558,10 @@ HH_H__args_print_usage_synopsis(const hh_args_t* args, FILE* stream, int argc, c
         else fprintf(stream, "%s <subcommand(s)> ", args_curr->name);
     } else fprintf(stream, "%s ", args_curr->name);
     // print options after subcommands
-    for(size_t i = 0; i < args_curr->count; ++i) {
-        HH_H__args_print_usage_helper(&args_curr->entries[i], stream, NULL, 0);
+    struct HH_H__args_entry_t* entry;
+    for(size_t i = 0, j = hh_darrlen(args_curr->entry_list); i < j; ++i) {
+        entry = (struct HH_H__args_entry_t*) args_curr->entry_list[i];
+        HH_H__args_print_usage_helper(entry, stream, NULL, 0);
     }
     if(args->command_parent == NULL) fprintf(stream, "\n");
 }
@@ -1432,10 +1569,12 @@ HH_H__args_print_usage_synopsis(const hh_args_t* args, FILE* stream, int argc, c
 void
 HH_H__args_print_usage_opt(const hh_args_t* args, FILE* stream, size_t indent, _Bool* last, size_t* measure, size_t align) {
     size_t len_cmds = hh_darrlen(args->commands);
+    size_t len_args = hh_darrlen(args->entry_list);
     size_t len;
     size_t i, j;
+    struct HH_H__args_entry_t* entry;
 #define last_ensure(idx_) (hh_darrlen(last) > (idx_) ? (idx_) : (hh_darradd(last, (idx_) - hh_darrlen(last)), (idx_)))
-    for(i = 0, len = 0; i < args->count; ++i, len = 0) {
+    for(i = 0, len = 0; i < len_args; ++i, len = 0) {
         for(j = 1; j < indent; ++j) {
             last_ensure(j);
             HH_H__args_print_usage_printf(last[j] ? "  " : "│ ");
@@ -1445,7 +1584,8 @@ HH_H__args_print_usage_opt(const hh_args_t* args, FILE* stream, size_t indent, _
             HH_H__args_print_usage_printf(len_cmds ? "│ " : "  ");
             len += 2;
         }
-        HH_H__args_print_usage_helper(&args->entries[i], stream, (measure == NULL) ? NULL : &len, align - len);
+        entry = (struct HH_H__args_entry_t*) args->entry_list[i];
+        HH_H__args_print_usage_helper(entry, stream, (measure == NULL) ? NULL : &len, align - len);
         if(measure != NULL && *measure < len) (*measure) = len;
         HH_H__args_print_usage_printf("\n");
     }
@@ -1498,29 +1638,29 @@ hh_read_entire_file(const char* path) {
     }
     if(fseek(f, 0, SEEK_END)) {
         HH_ERR("Failed to seek to end of file while reading [%s].", path);
-        goto hh_read_entire_file_failure;
+        goto failure;
     }
     long size_temp = ftell(f);
     if(size_temp < 0) {
         HH_ERR("Failed to read file size [%s].", path);
-        goto hh_read_entire_file_failure;
+        goto failure;
     }
     unsigned long size = (unsigned long) size_temp;
     rewind(f);
     (void) hh_darradd(f_buf, size);
     if(f_buf == NULL) {
         HH_ERR("Failed to allocate buffer for file contents [%s].", path);
-        goto hh_read_entire_file_failure;
+        goto failure;
     }
     size_t read_size = fread(f_buf, 1, size, f);
     if(read_size != (size_t) size) {
         HH_ERR("Failed to read entire file into buffer [%s].", path);
-        goto hh_read_entire_file_failure;
+        goto failure;
     }
     (void) hh_darradd(f_buf, '\0');
     fclose(f);
     return f_buf;
-hh_read_entire_file_failure:
+failure:
     fclose(f);
     hh_darrfree(f_buf);
     return NULL;
@@ -1656,6 +1796,9 @@ hh_getline(char** buf, size_t* bufsiz, FILE* fp) {
 #define darrswap hh_darrswap
 #define darrswapdel hh_darrswapdel
 #define darrputstr hh_darrputstr
+#define arena hh_arena
+#define arena_alloc hh_arena_alloc
+#define arena_free hh_arena_free
 #define path_alloc hh_path_alloc
 #define path_exists hh_path_exists
 #define path_is_file hh_path_is_file
