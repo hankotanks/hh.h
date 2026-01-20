@@ -165,6 +165,7 @@ typedef union {
 #define hh_darrpop(arr)        ((arr)[--(hh_darrheader(arr)->len)])
 #define hh_darradd(arr, n)     (HH__darradd((void**) &(arr), (n), sizeof *(arr)))
 #define hh_darrlen(arr)        ((arr == NULL) ? 0 : hh_darrheader(arr)->len)
+#define hh_darrsetlen(arr, n)  ((arr == NULL) ? 0 : (hh_darrheader(arr)->len = (n)))
 #define hh_darrcap(arr)        ((arr == NULL) ? 0 : hh_darrheader(arr)->cap)
 // returns truthy if swap succeeded
 // swap fails on empty dynamic arrays
@@ -576,6 +577,11 @@ HH__map_it_next(const hh_map_t* map, hh_map_entry_t* entry);
 #ifndef HH_ARGS_BUCKET_COUNT
 #define HH_ARGS_BUCKET_COUNT 10
 #endif // HH_ARGS_BUCKET_COUNT
+
+// defines indentation of the usage tree (must be >2)
+#ifndef HH_ARGS_USAGE_INDENT
+#define HH_ARGS_USAGE_INDENT 4
+#endif // HH_ARGS_USAGE_INDENT
 
 struct HH__args_entry {
     hh_flag_opt flag;
@@ -1173,9 +1179,12 @@ hh_args_data_add_flag(struct HH__args_data* data, hh_flag_type type, hh_flag_opt
         HH_ASSERT(!hh_map_get_val_with_cstr_key(&data->flags_long, opt.flag_long),
             FLAG_INVALID "Long flag already added: " FLAG_FMT, FLAG_FMT_ARGS(opt));
     // provided 'name' to boolean
-    if(type == HH_FLAG_BOOL) 
+    if(type == HH_FLAG_BOOL) {
         HH_ASSERT(opt.name == NULL, 
             FLAG_INVALID "Provided value name to boolean flag: " FLAG_FMT, FLAG_FMT_ARGS(opt));
+        HH_ASSERT(!opt.required, 
+            FLAG_INVALID "Boolean flags can't be required: " FLAG_FMT, FLAG_FMT_ARGS(opt));
+    }
     // allocate
     struct HH__args_entry* entry = hh_arena_alloc(&data->entries, sizeof(*entry));
     if(entry == NULL) return NULL;
@@ -1328,6 +1337,7 @@ hh_args_parse_inner(hh_args_t* args, int argc, char* argv[]) {
         }
         if(entry->type == HH_FLAG_BOOL) {
             entry->unwrap.val_bool = 1;
+            entry->set = 1;
             goto done;
         }
         // grab the next arg
@@ -1397,6 +1407,8 @@ invalid:
 _Bool
 hh_args_parse(hh_args_t* args, FILE* stream, int argc, char* argv[]) {
     HH_ASSERT(args != NULL && argc > 0 && argv[argc] == NULL, "Parameters were malformed");
+    HH_ASSERT(args->parent == NULL, "Passed non-root hh_args_t to hh_args_parse");
+    args->data->deepest_parsed = args;
     _Bool result = hh_args_parse_inner(args, argc - 1, argv + 1);
     // disregard error if [-h, --help] flag was passed
     for(int i = 0; i < argc; ++i) {
@@ -1451,8 +1463,9 @@ hh_args_free(hh_args_t* args) {
     }
 }
 
+#if 0
 void
-hh_args_print_error(const hh_args_t* args, FILE* stream) {
+hh_args_print_error_raw(const hh_args_t* args, FILE* stream) {
     // data->error.type
     fprintf(stream, "data->error.type: ");
     switch(args->data->error.type) {
@@ -1496,13 +1509,201 @@ hh_args_print_error(const hh_args_t* args, FILE* stream) {
     else fprintf(stream, "(null)");
     fprintf(stream, "\n");
 }
+#endif
+
+static void
+hh_args_print_error_helper(const hh_args_t* origin, FILE* stream) {
+    size_t len = hh_darrlen(origin->children);
+    if(origin->parent == NULL) {
+        fprintf(stream, "command");
+    } else {
+        HH_ASSERT_UNREACHABLE(origin->name != NULL);
+        fprintf(stream, "subcommand for '%s'", origin->name);
+    }
+    fputc(' ', stream);
+    HH_ASSERT_UNREACHABLE(len > 0);
+    fprintf(stream, "[must be one of: ");
+    for(size_t i = 0; i < len; ++i) {
+        fprintf(stream, "%s%s", origin->children[i].name, (i + 1 < len) ? ", " : "");
+    }
+    fprintf(stream, "]");
+}
+
+void
+hh_args_print_error(const hh_args_t* args, FILE* stream) {
+    HH_ASSERT(args != NULL && stream != NULL, "Parameters were malformed");
+    const struct HH__args_error* err = &args->data->error;
+    const hh_args_t* origin = args->data->deepest_parsed;
+    HH_ASSERT_UNREACHABLE(origin != NULL);
+    // print descriptive error message
+    switch(err->type) {
+    case HH__ARGS_ERR_NONE: return;
+    case HH__ARGS_ERR_CMD_MISSING:
+        fprintf(stream, "Missing required ");
+        hh_args_print_error_helper(origin, stream);
+        break;
+    case HH__ARGS_ERR_CMD_INVALID:
+        if(err->entry != NULL) 
+            fprintf(stream, "Provided argument before required");
+        else fprintf(stream, "Invalid");
+        fputc(' ', stream);
+        hh_args_print_error_helper(origin, stream);
+        break;
+    case HH__ARGS_ERR_FLAG_MISSING_VALUE:
+        HH_ASSERT_UNREACHABLE(err->entry != NULL);
+        fprintf(stream, "Flag " FLAG_FMT " is missing a required value", 
+            FLAG_FMT_ARGS(err->entry->flag));
+        break;
+    case HH__ARGS_ERR_FLAG_INVALID:
+        HH_ASSERT_UNREACHABLE(err->entry != NULL);
+        fprintf(stream, "Flag " FLAG_FMT " received an invalid value: %s", 
+            FLAG_FMT_ARGS(err->entry->flag), err->extra);
+        break;
+    case HH__ARGS_ERR_FLAG_DUPLICATE:
+        HH_ASSERT_UNREACHABLE(err->entry != NULL);
+        fprintf(stream, "Flag " FLAG_FMT " is passed more than once", 
+            FLAG_FMT_ARGS(err->entry->flag));
+        break;
+    case HH__ARGS_ERR_FLAG_REQUIRED:
+        HH_ASSERT_UNREACHABLE(err->entry != NULL);
+        fprintf(stream, "Required flag " FLAG_FMT " is missing", 
+            FLAG_FMT_ARGS(err->entry->flag));
+        break;
+    case HH__ARGS_ERR_FLAG_MISMATCH:
+        HH_ASSERT_UNREACHABLE(origin->parent != NULL);
+        HH_ASSERT_UNREACHABLE(origin->name != NULL);
+        fprintf(stream, "Flag " FLAG_FMT " not supported by provided '%s' %s", 
+            FLAG_FMT_ARGS(err->entry->flag),
+            origin->name, origin->parent->parent ? "subcommand" : "command");
+        break;
+    default: HH_UNREACHABLE;
+    }
+}
+
+#define fprintf_(...) if(padding > 0) fprintf(stream, __VA_ARGS__)
+
+static size_t
+hh_args_print_usage_flag(hh_flag_type type, hh_flag_opt flag, FILE* stream, size_t padding) {
+    size_t col = 0;
+    if(!flag.required) {
+        fprintf_("[");
+        col++;
+    }
+    if(flag.flag != '\0') {
+        fprintf_("-%c", flag.flag);
+        col += 2;
+    } else {
+        fprintf_("--%s", flag.flag_long);
+        col += 2 + strlen(flag.flag_long);
+    }
+    const char* name = flag.name;
+    if(name == NULL) {
+        switch(type) {
+        case HH_FLAG_BOOL:  break;
+        case HH_FLAG_CSTR:  name = "string"; break;
+        case HH_FLAG_PATH:  name = "path";   break;
+        case HH_FLAG_DBL:   name = "number"; break;
+        case HH_FLAG_LONG:  name = "int";    break;
+        case HH_FLAG_ULONG: name = "uint";   break;
+        default: HH_UNREACHABLE;
+        }
+    }
+    if(name != NULL) {
+        fprintf_(" <%s>", name);
+        col += 3 + strlen(name);
+    }
+    if(!flag.required) {
+        fprintf_("]");
+        col++;
+    }
+    return col;
+}
+
+static size_t
+hh_args_print_usage_entry(const struct HH__args_entry* entry, FILE* stream, 
+    _Bool* levels, size_t padding) {
+    size_t col = 0;
+    for(size_t i = 0; i < hh_darrlen(levels); ++i) {
+        fprintf_("%s%*s", levels[i] ? "│" : " ", HH_ARGS_USAGE_INDENT - 2, "");
+        col += HH_ARGS_USAGE_INDENT - 1;
+    }
+    col += hh_args_print_usage_flag(entry->type, entry->flag, stream, padding);
+    HH_ASSERT_UNREACHABLE(padding == 0 || col <= padding);
+    fprintf_("%*s", (int) (padding - col - 1), "");
+    if(entry->flag.desc != NULL) {
+        fprintf_("%s", entry->flag.desc);
+        if(entry->flag.flag != '\0' && entry->flag.flag_long != NULL) {
+            fprintf_(" (alt: ");
+            if(!entry->flag.required) fprintf_("["); 
+            fprintf_("--%s", entry->flag.flag_long);
+            if(!entry->flag.required) fprintf_("]"); 
+            fprintf_(")"); 
+        }
+    }
+    fprintf_("\n");
+    return col;
+}
+
+static size_t
+hh_args_print_usage_inner(const hh_args_t* args, FILE* stream,
+    int argc, char* argv[], _Bool** levels, int last, size_t padding) {
+    HH_ASSERT_UNREACHABLE(HH_ARGS_USAGE_INDENT > 2);
+    size_t col = 0;
+    for(size_t i = 0; i + 1 < hh_darrlen(*levels); ++i) {
+        fprintf_("%s%*s", (*levels)[i] ? "│" : " ", HH_ARGS_USAGE_INDENT - 2, "");
+        col += HH_ARGS_USAGE_INDENT - 1;
+    }
+    if(args->parent != NULL) {
+        fprintf_("%s", last ? "└" : "├");
+        for(size_t i = 0; i < HH_ARGS_USAGE_INDENT - 2; ++i) fprintf_("─");
+        fprintf_("%s", args->name);
+        col += HH_ARGS_USAGE_INDENT + strlen(args->name);
+    } else {
+        const char* exe = hh_path_name(argv[0]);
+        fprintf_("./%s", exe);
+        col += 2 + strlen(exe);
+    }
+    // print description aligned to the second column
+    HH_ASSERT_UNREACHABLE(padding == 0 || col <= padding);
+    if(args->desc != NULL) {
+        fprintf_("%*s%s", (int) (padding - col), "", args->desc);
+    } else if(args->parent == NULL) {
+        fprintf_("%*sDESCRIPTION", (int) (padding - col - 1), "");
+    }
+    fprintf_("\n");
+    // print flags
+    hh_darrput(*levels, hh_darrlen(args->children) != 0);
+    const struct HH__args_entry* entry;
+    for(size_t i = 0, j; i < hh_darrlen(args->entries); ++i) {
+        entry = (const struct HH__args_entry*) args->entries[i];
+        j = hh_args_print_usage_entry(entry, stream, *levels, padding);
+        col = HH_MAX(col, j);
+    }
+    (void) hh_darrpop(*levels);
+    // print subcommands
+    for(size_t i = 0, j = hh_darrlen(args->children), k; i < j; ++i) {
+        hh_darrput(*levels, i != j - 1);
+        k = hh_args_print_usage_inner(&args->children[i], stream,
+            argc, argv, levels, i == (j - 1), padding);
+        col = HH_MAX(col, k);
+        (void) hh_darrpop(*levels);
+    }
+    return col;
+}
+
+#undef fprintf_
 
 void
 hh_args_print_usage(const hh_args_t* args, FILE* stream, int argc, char* argv[]) {
-    (void) args;
-    (void) stream;
-    (void) argc;
-    (void) argv;
+    HH_ASSERT(args != NULL && argc > 0 && argv[argc] == NULL, "Parameters were malformed");
+    HH_ASSERT(args->parent == NULL, "Passed non-root hh_args_t to hh_args_parse");
+    _Bool* levels = NULL;
+    size_t padding = hh_args_print_usage_inner(args, stream, argc, argv, 
+        &levels, 1, 0);
+    hh_darrclear(levels);
+    hh_args_print_usage_inner(args, stream, argc, argv, 
+        &levels, 1, padding + HH_ARGS_USAGE_INDENT * 2);
+    hh_darrfree(levels);
 }
 
 #undef FLAG_FMT
@@ -1672,6 +1873,7 @@ hh_getline(char** buf, size_t* bufsiz, FILE* fp) {
 #define darrpop hh_darrpop
 #define darradd hh_darradd
 #define darrlen hh_darrlen
+#define darrsetlen hh_darrsetlen
 #define darrcap hh_darrcap
 #define darrswap hh_darrswap
 #define darrswapdel hh_darrswapdel
