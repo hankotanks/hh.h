@@ -1658,9 +1658,6 @@ hh_args_print_usage_entry(const struct HH__args_entry* entry, FILE* stream,
     return col;
 }
 
-#undef FLAG_FMT
-#undef FLAG_FMT_ARGS_SHORT
-
 static size_t
 hh_args_print_usage_inner(const hh_args_t* args, FILE* stream,
     int argc, char* argv[], _Bool** levels, int last, size_t padding) {
@@ -1710,10 +1707,80 @@ hh_args_print_usage_inner(const hh_args_t* args, FILE* stream,
 
 #undef USAGE_OUT
 
+static void
+hh_args_print_synopsis_cmds(const hh_args_t *args, FILE *stream, int argc, char *argv[]) {
+    HH_ASSERT_UNREACHABLE(args != NULL);
+    if(args->parent != NULL) {
+        hh_args_print_synopsis_cmds(args->parent, stream, argc, argv);
+        fprintf(stream, "%s ", args->name);
+    } else {
+        fprintf(stream, "./%s ", hh_path_name(argv[0]));
+    }
+}
+
+static void
+hh_args_print_synopsis_flags(const hh_args_t *args, FILE *stream) {
+    HH_ASSERT_UNREACHABLE(args != NULL);
+    if(args->parent != NULL) {
+        hh_args_print_synopsis_flags(args->parent, stream);
+    }
+    const struct HH__args_entry* entry;
+    for(size_t i = 0; i < hh_darrlen(args->entries); ++i) {
+        entry = (const struct HH__args_entry*) args->entries[i];
+        fprintf(stream, FLAG_FMT " ", FLAG_FMT_ARGS_SHORT(entry->flag, &entry->type));
+    }
+}
+
+#undef FLAG_FMT
+#undef FLAG_FMT_ARGS_SHORT
+
+static void
+hh_args_print_synopsis(const hh_args_t *args, FILE *stream, int argc, char *argv[]) {
+    while(hh_darrlen(args->children) == 1) args = &args->children[0];
+    hh_args_print_synopsis_cmds(args, stream, argc, argv);
+    HH_ASSERT_UNREACHABLE(hh_darrlen(args->children) != 1);
+    _Bool cont = 0;
+    if(hh_darrlen(args->children) > 1) {
+        _Bool sub_one = 0;
+        _Bool sub_all = 1;
+        _Bool temp;
+        if(args->parent == NULL) {
+            fprintf(stream, "<command> ");
+            for(size_t i = 0; i < hh_darrlen(args->children); ++i) {
+                temp = (hh_darrlen(args->children[i].children) != 0);
+                sub_one &= temp;
+                sub_all |= temp;
+            }
+            if(sub_one) {
+                fprintf(stream, "%s<subcommands>...%s ",
+                    sub_all ? "[" : "",
+                    sub_all ? "]" : "");
+            } else if(sub_all) fprintf(stream, "[<subcommands>[...]] ");
+        } else {
+            fprintf(stream, "<subcommand>");
+            for(size_t i = 0; i < hh_darrlen(args->children); ++i) {
+                temp = (hh_darrlen(args->children[i].children) != 0);
+                sub_all &= temp;
+                sub_one |= temp;
+            }
+            if(sub_all) fprintf(stream, "...");
+            else if(sub_one) fprintf(stream, "[...]");
+            fputc(' ', stream);
+        }
+        cont = 1;
+    }
+    hh_args_print_synopsis_flags(args, stream);
+    if(cont) fprintf(stream, "...");
+    fputc('\n', stream);
+}
+
 void
 hh_args_print_usage(const hh_args_t* args, FILE* stream, int argc, char* argv[]) {
     HH_ASSERT(args != NULL && argc > 0 && argv[argc] == NULL, "Parameters were malformed");
     HH_ASSERT(args->parent == NULL, "Passed non-root hh_args_t to hh_args_parse");
+    fprintf(stream, "SYNOPSIS\n");
+    hh_args_print_synopsis(args->data->deepest_parsed, stream, argc, argv);
+    fputc('\n', stream);
     _Bool* levels = NULL;
     size_t padding = hh_args_print_usage_inner(args, stream, argc, argv, 
         &levels, 1, 0);
