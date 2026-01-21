@@ -19,6 +19,11 @@ cstr2cstr_dump_keys(const hh_map_t* map);
 void
 cstr2cstr_dump_buckets(const hh_map_t* map);
 
+// TODO: I received a super rare segfault in this example after the following
+// insert: hello, world
+// insert: hello, world2
+// remove: hello
+
 int
 main(int argc, char* argv[]) {
     (void) argc;

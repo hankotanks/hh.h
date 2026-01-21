@@ -9,14 +9,14 @@ main(void) {
     DBG("Created path_root: "
         "path = \"%s\", len = %zu, cap = %zu", path_root, darrlen(path_root), darrcap(path_root));
     // check joining
-    const char* name_header = "hh.h";
+    const char* name_header = "h.h";
     char* path_header = path_alloc(path_root);
     path_join(path_header, name_header);
     ASSERT(path_header != NULL, "hh_path_join returned NULL");
     ASSERT(strcmp(path_name(path_header), name_header) == 0, 
         "hh_path_name returned incorrect filename: "
         "path = %s, len = %zu, cap = %zu", path_header, darrlen(path_header), darrcap(path_header));
-    DBG("Joined \"hh.h\" to path_root: "
+    DBG("Joined \"h.h\" to path_root: "
         "path = %s, len = %zu, cap = %zu", path_header, darrlen(path_header), darrcap(path_header));
     // take parent
     hh_path_parent(path_header);
