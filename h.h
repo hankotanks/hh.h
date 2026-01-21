@@ -407,6 +407,9 @@ hh_args_add_cmd(hh_args_t* args, const char* name, const char* desc);
 // returns truthy on success
 _Bool
 hh_args_parse(hh_args_t* args, FILE* stream, int argc, char* argv[]);
+// returns truthy if the given cmd was parsed
+_Bool
+hh_args_parsed_cmd(const hh_args_t* args, const hh_args_t* cmd);
 // free the argument parser tree
 // NOTE: only needs to be invoked on the root node of the tree
 void
@@ -621,6 +624,11 @@ struct HH__args_data {
     struct HH__args_error error;
 };
 
+// TODO: paths shouldn't necessary have to exist to be valid
+// if they can be parsed by hh_path_alloc, then it's okay
+// consider splitting the flag types into HH_FLAG_PATH
+// and HH_PATH_EXISTS
+
 // TODO: Below is the bucket list for hh_args_t, ordered by precedence
 // DONE: * [--help, -h] to print context-specific help menus
 // DONE: * required arguments
@@ -634,6 +642,7 @@ struct HH__args_t {
     hh_args_t* children;
     hh_args_t* parent;
     struct HH__args_data* data;
+    _Bool parsed;
 };
 
 const void*
@@ -1344,6 +1353,7 @@ hh_args_parse_inner(hh_args_t* args, int argc, char* argv[]) {
         if(strcmp(argv[0], args->children[i].name) != 0) continue;
         // set the child node as the latest parsed
         args->data->deepest_parsed = &args->children[i];
+        args->children[i].parsed = 1;
         if(!hh_args_parse_inner(&args->children[i], argc - 1, argv + 1)) return 0;
         found = 1;
     }
@@ -1467,6 +1477,11 @@ hh_args_parse(hh_args_t* args, FILE* stream, int argc, char* argv[]) {
 }
 
 #undef ERR_SET
+
+_Bool
+hh_args_parsed_cmd(const hh_args_t* args, const hh_args_t* cmd) {
+    return (args->data->deepest_parsed == cmd);
+}
 
 void
 hh_args_free(hh_args_t* args) {
@@ -1743,6 +1758,7 @@ hh_args_print_synopsis(const hh_args_t *args, FILE *stream, int argc, char *argv
     if(hh_darrlen(args->children) > 1) {
         _Bool sub_one = 0;
         _Bool sub_all = 1;
+        _Bool shallow = 1;
         _Bool temp;
         if(args->parent == NULL) {
             fprintf(stream, "<command> ");
@@ -1750,8 +1766,11 @@ hh_args_print_synopsis(const hh_args_t *args, FILE *stream, int argc, char *argv
                 temp = (hh_darrlen(args->children[i].children) != 0);
                 sub_one &= temp;
                 sub_all |= temp;
+                shallow &= !temp;
             }
-            if(sub_one) {
+            if(shallow) {
+                // lazy
+            } else if(sub_one) {
                 fprintf(stream, "%s<subcommands>...%s ",
                     sub_all ? "[" : "",
                     sub_all ? "]" : "");
@@ -2007,6 +2026,7 @@ hh_getline(char** buf, size_t* bufsiz, FILE* fp) {
 #define args_add_flag hh_args_add_flag
 #define args_add_cmd hh_args_add_cmd
 #define args_parse hh_args_parse
+#define args_parsed_cmd hh_args_parsed_cmd
 #define args_free hh_args_free
 #define args_print_error hh_args_print_error
 #define args_print_usage hh_args_print_usage

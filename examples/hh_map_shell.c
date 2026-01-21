@@ -1,5 +1,5 @@
 #define HH_IMPLEMENTATION
-#include "hh.h"
+#include "h.h"
 
 #include <stdbool.h>
 
