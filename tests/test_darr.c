@@ -41,8 +41,7 @@ main(void) {
             "hh_darrswap failed to swap elements");
     }
     // pop swap
-    j = darrlen(arr);
-    for(i = 0; i < j; ++i) {
+    for(i = 0, j = darrlen(arr); i < j; ++i) {
         k = (size_t) ((uint64_t) rand() * darrlen(arr) / (RAND_MAX + 1ULL));
         char* tmp = darrswapdel(arr, k);
         DBG_BLOCK {
@@ -58,8 +57,6 @@ main(void) {
     }
     ASSERT(darrlen(arr) == 0, 
         "hh_darrswapdel failed to remove all elements");
-    ASSERT(darrswapdel(arr, 0) == NULL, 
-        "hh_darrswapdel did not return NULL on empty array");
     darrfree(arr);
     return 0;
 }

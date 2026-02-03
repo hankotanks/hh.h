@@ -158,20 +158,32 @@ typedef union {
 // Adapted from...
 // stb_ds.h - v0.67 - public domain data structures - Sean Barrett 2019
 
+// hh_darrclear    sets array length to 0
+// hh_darrfree     frees the array and sets it to NULL
+// hh_darrlast     returns the last element by value
+// hh_darrput      inserts a value, returns assignment result
+// hh_darrputstr   pushes a string to a char* dynamic array (always ensures null-termination)
+// hh_darrpop      removes the last element and returns it by value
+// hh_darradd      adds n zero-initialized elements to the array, returns the index to the 1st new element
+// hh_darrlen      returns array length
+// hh_darrcap      returns array capacity
+// hh_darrswap     swaps the elements at 2 indices
+// hh_darrswapdel  deletes the ith element by swapping ot with the last element, then popping
+
 #define hh_darrclear(arr)      ((arr == NULL) ? 0 : (hh_darrheader(arr)->len = 0))
-#define hh_darrfree(arr)       ((void) ((arr) ? free(hh_darrheader(arr)) : (void) 0), (arr) = NULL)
+#define hh_darrfree(arr)       ((void) ((arr == NULL) ? (void) 0 : free(hh_darrheader(arr))), (arr) = NULL)
 #define hh_darrlast(arr)       ((arr)[hh_darrheader(arr)->len - 1])
 #define hh_darrput(arr, val)   ((void) hh_darrgrow(arr, 1), (arr)[(hh_darrheader(arr)->len)++] = (val))
 #define hh_darrpop(arr)        ((arr)[--(hh_darrheader(arr)->len)])
 #define hh_darradd(arr, n)     (HH__darradd((void**) &(arr), (n), sizeof *(arr)))
 #define hh_darrlen(arr)        ((arr == NULL) ? 0 : hh_darrheader(arr)->len)
-#define hh_darrsetlen(arr, n)  ((arr == NULL) ? 0 : (hh_darrheader(arr)->len = (n)))
 #define hh_darrcap(arr)        ((arr == NULL) ? 0 : hh_darrheader(arr)->cap)
-// returns truthy if swap succeeded
-// swap fails on empty dynamic arrays
 #define hh_darrswap(arr, i, j) (HH__darrswap((arr), (i), (j)))
-#define hh_darrswapdel(arr, i) ((i) < hh_darrlen(arr) ? (HH__darrswap((arr), (i), hh_darrlen(arr) - 1), hh_darrpop(arr)) : NULL)
+#define hh_darrswapdel(arr, i) (HH__darrswap((arr), (i), hh_darrlen(arr) - 1), hh_darrpop(arr))
  
+// TODO: hh_darrputstr should be an expression macro as above,
+// even if it requires a helper function
+
 // append a string to a dynamic array
 // ensures null-termination
 #define hh_darrputstr(arr, str) do { \
@@ -508,7 +520,7 @@ void
 HH__darrgrow(void** arrp, size_t n, size_t elem_size);
 size_t
 HH__darradd(void** arrp, size_t n, size_t elem_size);
-_Bool 
+void
 HH__darrswap(void* arrp, size_t i, size_t j);
 
 // arena type
@@ -697,20 +709,22 @@ HH__args_add_flag(hh_args_t* args, hh_flag_type type, hh_flag_opt opt);
 void*
 hh_malloc_checked(size_t size) {
     void* ptr = malloc(size);
-    HH_ASSERT(ptr != NULL, "Failed to allocate %llu bytes.", (unsigned long long) size);
+    HH_ASSERT(ptr != NULL, "hh_malloc_checked failed to allocate %llu bytes", (unsigned long long) size);
     return ptr;
 }
 
 void*
 hh_calloc_checked(size_t num, size_t size) {
     void* ptr = calloc(num, size);
-    HH_ASSERT(ptr != NULL, "Failed to allocate %llu bytes.", (unsigned long long) size);
+    HH_ASSERT(ptr != NULL, "hh_calloc_checked failed to allocate %llu bytes", (unsigned long long) size);
     return ptr;
 }
 
 void*
 HH__darrnew(size_t cap, size_t elem_size) {
+    HH_ASSERT(elem_size > 0, "HH__darrnew received invalid element size");
     void* arr = (((hh_darrheader_t*) calloc(1, sizeof(hh_darrheader_t) + elem_size * cap)) + 1);
+    HH_ASSERT(arr != NULL, "HH__darrnew failed to allocate array");
     hh_darrheader(arr)->len = 0;
     hh_darrheader(arr)->cap = cap;
     hh_darrheader(arr)->elem_size = elem_size;
@@ -721,7 +735,7 @@ void
 HH__darrgrow(void** arrp, size_t n, size_t elem_size) {
     if(*arrp == NULL) {
         hh_darrheader_t* hdr = calloc(1, sizeof(hh_darrheader_t) + elem_size * HH_MAX(n, HH_ARR_CAP_DEFAULT));
-        assert(hdr != NULL);
+        HH_ASSERT(hdr != NULL, "HH__darrgrow failed to allocate array");
         hdr->len = 0;
         hdr->cap = HH_MAX(n, HH_ARR_CAP_DEFAULT);
         hdr->elem_size = elem_size;
@@ -732,13 +746,14 @@ HH__darrgrow(void** arrp, size_t n, size_t elem_size) {
     if(hdr->len + n >= hdr->cap) {
         while(hdr->len + n >= hdr->cap) hdr->cap *= 2;
         hdr = realloc(hdr, sizeof(hh_darrheader_t) + hdr->cap * hdr->elem_size);
-        assert(hdr != NULL);
+        HH_ASSERT(hdr != NULL, "HH__darrgrow failed to allocate array");
         *arrp = (void*) (hdr + 1);
     }
 }
 
 size_t
 HH__darradd(void** arrp, size_t n, size_t elem_size) {
+    HH_ASSERT(elem_size > 0, "HH__darradd received invalid element size");
     HH__darrgrow(arrp, n, elem_size);
     size_t len = hh_darrlen(*arrp);
     if(n) {
@@ -748,16 +763,17 @@ HH__darradd(void** arrp, size_t n, size_t elem_size) {
     return len;
 }
 
-_Bool 
+void
 HH__darrswap(void* arrp, size_t i, size_t j) {
-    if(i == j) return 1;
-    if(arrp == NULL) return 0;
+    HH_ASSERT(arrp != NULL, "HH__darrswap received NULL array");
+    HH_ASSERT(hh_darrlen(arrp) > 0, "HH__darrswap received array with 0 elements");
+    HH_ASSERT(i < hh_darrlen(arrp) && j < hh_darrlen(arrp), "HH__darrswap received invalid indices (i: %zu, j: %zu, len: %zu)", i, j, hh_darrlen(arrp));
+    if(i == j) return;
     size_t elem_size = hh_darrheader(arrp)->elem_size;
     char tmp[elem_size];
     memcpy(tmp, ((char*) arrp) + i * elem_size, elem_size);
     memcpy(((char*) arrp) + i * elem_size, ((char*) arrp) + j * elem_size, elem_size);
     memcpy(((char*) arrp) + j * elem_size, tmp, elem_size);
-    return 1;
 }
 
 void*
@@ -2046,7 +2062,6 @@ hh_getline(char** buf, size_t* bufsiz, FILE* fp) {
 #define darrpop hh_darrpop
 #define darradd hh_darradd
 #define darrlen hh_darrlen
-#define darrsetlen hh_darrsetlen
 #define darrcap hh_darrcap
 #define darrswap hh_darrswap
 #define darrswapdel hh_darrswapdel
