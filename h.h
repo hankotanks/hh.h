@@ -732,48 +732,52 @@ HH__darrnew(size_t cap, size_t elem_size) {
 }
 
 void 
-HH__darrgrow(void** arrp, size_t n, size_t elem_size) {
-    if(*arrp == NULL) {
-        hh_darrheader_t* hdr = calloc(1, sizeof(hh_darrheader_t) + elem_size * HH_MAX(n, HH_ARR_CAP_DEFAULT));
-        HH_ASSERT(hdr != NULL, "HH__darrgrow failed to allocate array");
-        hdr->len = 0;
-        hdr->cap = HH_MAX(n, HH_ARR_CAP_DEFAULT);
-        hdr->elem_size = elem_size;
-        *arrp = (void*) (hdr + 1);
+HH__darrgrow(void** arr_ptr, size_t n, size_t elem_size) {
+    hh_darrheader_t* arr_hdr;
+    if(*arr_ptr == NULL) {
+        arr_hdr = calloc(1, sizeof(hh_darrheader_t) + elem_size * HH_MAX(n, HH_ARR_CAP_DEFAULT));
+        HH_ASSERT(arr_hdr != NULL, "HH__darrgrow failed to allocate array");
+        arr_hdr->len = 0;
+        arr_hdr->cap = HH_MAX(n, HH_ARR_CAP_DEFAULT);
+        arr_hdr->elem_size = elem_size;
+        *arr_ptr = (void*) (arr_hdr + 1);
         return;
     }
-    hh_darrheader_t* hdr = hh_darrheader(*arrp);
-    if(hdr->len + n >= hdr->cap) {
-        while(hdr->len + n >= hdr->cap) hdr->cap *= 2;
-        hdr = realloc(hdr, sizeof(hh_darrheader_t) + hdr->cap * hdr->elem_size);
-        HH_ASSERT(hdr != NULL, "HH__darrgrow failed to allocate array");
-        *arrp = (void*) (hdr + 1);
+    arr_hdr = hh_darrheader(*arr_ptr);
+    if(arr_hdr->len + n >= arr_hdr->cap) {
+        while(arr_hdr->len + n >= arr_hdr->cap) arr_hdr->cap *= 2;
+        arr_hdr = realloc(arr_hdr, sizeof(hh_darrheader_t) + arr_hdr->cap * arr_hdr->elem_size);
+        HH_ASSERT(arr_hdr != NULL, "HH__darrgrow failed to allocate array");
+        *arr_ptr = (void*) (arr_hdr + 1);
     }
 }
 
 size_t
-HH__darradd(void** arrp, size_t n, size_t elem_size) {
+HH__darradd(void** arr_ptr, size_t n, size_t elem_size) {
     HH_ASSERT(elem_size > 0, "HH__darradd received invalid element size");
-    HH__darrgrow(arrp, n, elem_size);
-    size_t len = hh_darrlen(*arrp);
-    if(n) {
-        memset((char*) (*arrp) + len * elem_size, 0, elem_size * n);
-        hh_darrheader(*arrp)->len = len + n;
+    HH__darrgrow(arr_ptr, n, elem_size);
+    size_t len = hh_darrlen(*arr_ptr);
+    if(n > 0) {
+        memset((char*) (*arr_ptr) + len * elem_size, 0, elem_size * n);
+        hh_darrheader(*arr_ptr)->len = len + n;
     }
     return len;
 }
 
 void
-HH__darrswap(void* arrp, size_t i, size_t j) {
-    HH_ASSERT(arrp != NULL, "HH__darrswap received NULL array");
-    HH_ASSERT(hh_darrlen(arrp) > 0, "HH__darrswap received array with 0 elements");
-    HH_ASSERT(i < hh_darrlen(arrp) && j < hh_darrlen(arrp), "HH__darrswap received invalid indices (i: %zu, j: %zu, len: %zu)", i, j, hh_darrlen(arrp));
+HH__darrswap(void* arr, size_t i, size_t j) {
+    HH_ASSERT(arr != NULL, "HH__darrswap received NULL array");
+    HH_ASSERT(hh_darrlen(arr) > 0, "HH__darrswap received array with 0 elements");
+    HH_ASSERT(i < hh_darrlen(arr) && j < hh_darrlen(arr), "HH__darrswap received invalid indices (i: %zu, j: %zu, len: %zu)", i, j, hh_darrlen(arr));
     if(i == j) return;
-    size_t elem_size = hh_darrheader(arrp)->elem_size;
-    char tmp[elem_size];
-    memcpy(tmp, ((char*) arrp) + i * elem_size, elem_size);
-    memcpy(((char*) arrp) + i * elem_size, ((char*) arrp) + j * elem_size, elem_size);
-    memcpy(((char*) arrp) + j * elem_size, tmp, elem_size);
+    size_t elem_size = hh_darrheader(arr)->elem_size;
+    char* elem_i = ((char*) arr) + i * elem_size;
+    char* elem_j = ((char*) arr) + j * elem_size;
+    for(size_t k = 0; k < elem_size; ++k) {
+        elem_i[k] = elem_i[k] ^ elem_j[k];
+        elem_j[k] = elem_i[k] ^ elem_j[k];
+        elem_i[k] = elem_i[k] ^ elem_j[k];
+    }
 }
 
 void*
